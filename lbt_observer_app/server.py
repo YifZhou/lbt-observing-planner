@@ -471,21 +471,64 @@ def token_match(needle: str, haystack: str) -> bool:
 
 
 def merge_targets(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     for group in groups:
         for target in group:
             key = target_identity(target)
             current = by_key.get(key)
-            if current is None or source_rank(target.get("source", "")) >= source_rank(current.get("source", "")):
+            if current is None:
                 by_key[key] = target
+            elif should_replace_target(current, target):
+                by_key[key] = merge_target_records(current, target)
+            else:
+                by_key[key] = merge_target_records(target, current)
     return list(by_key.values())
 
 
-def target_identity(target: dict[str, Any]) -> tuple[str, str, str]:
+def should_replace_target(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    return target_source_rank(candidate.get("source", "")) >= target_source_rank(current.get("source", ""))
+
+
+def target_source_rank(value: Any) -> tuple[str, int, str]:
+    text = str(value or "")
+    m = re.search(r"(\d{4})_(\d{2})_(\d{2})", text)
+    date_rank = "".join(m.groups()) if m else ""
+    if text.startswith("json:"):
+        kind_rank = 3
+    elif text.startswith("csv:"):
+        kind_rank = 2
+    elif text.startswith("browser-json"):
+        kind_rank = 1
+    elif text.startswith("browser-csv"):
+        kind_rank = 0
+    else:
+        kind_rank = 1
+    return (date_rank, kind_rank, text)
+
+
+def merge_target_records(older: dict[str, Any], newer: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(newer)
+    for key in ["status", "notes", "observedAt", "manualOrder", "readmeId"]:
+        if older.get(key) not in (None, "") and newer.get(key) in (None, ""):
+            merged[key] = older[key]
+    if older.get("priority") not in (None, "") and newer.get("priority") in (None, ""):
+        merged["priority"] = older["priority"]
+    return merged
+
+
+def target_identity(target: dict[str, Any]) -> tuple[str, ...]:
+    instrument = normalize_instrument(target.get("instrument"))
+    name = str(target.get("targetName", "")).strip().lower()
+    program = str(target.get("programName", "")).strip().lower()
+    if name and name != "unknown":
+        return (instrument, program, name)
+    ra = target.get("raDeg")
+    dec = target.get("decDeg")
     return (
-        normalize_instrument(target.get("instrument")),
-        str(target.get("targetName", "")).strip().lower(),
-        str(round(target.get("raDeg") or -999.0, 4)),
+        instrument,
+        program,
+        str(round(float(ra) if ra is not None else -999.0, 2)),
+        str(round(float(dec) if dec is not None else -999.0, 2)),
     )
 
 
@@ -584,7 +627,12 @@ def carry_observer_state(new_state: dict[str, Any], old_state: dict[str, Any]) -
 def load_state() -> dict[str, Any]:
     if STATE_FILE.exists():
         try:
-            return json.loads(STATE_FILE.read_text())
+            state = json.loads(STATE_FILE.read_text())
+            before = len(state.get("targets", []))
+            state["targets"] = merge_targets(state.get("targets", []))
+            if len(state.get("targets", [])) != before:
+                save_state(state)
+            return state
         except json.JSONDecodeError:
             pass
     state = build_initial_state()
@@ -594,6 +642,9 @@ def load_state() -> dict[str, Any]:
 
 def save_state(state: dict[str, Any]) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    state["targets"] = merge_targets(state.get("targets", []))
+    target_ids = {t.get("id") for t in state.get("targets", [])}
+    state["sequence"] = [tid for tid in state.get("sequence", []) if tid in target_ids]
     state["updatedAt"] = utc_stamp()
     tmp = STATE_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")

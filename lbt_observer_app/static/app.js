@@ -57,6 +57,9 @@ async function loadState() {
 
 function applyDefaults() {
   const now = new Date();
+  state.targets = mergeByIdentity(state.targets || []);
+  const validIds = new Set(state.targets.map((t) => t.id));
+  state.sequence = (state.sequence || []).filter((id, idx, arr) => validIds.has(id) && arr.indexOf(id) === idx);
   state.meta.date ||= now.toISOString().slice(0, 10);
   state.meta.timezone ||= "UTC";
   state.meta.selectedLocalTime ||= now.toISOString().slice(0, 16);
@@ -1789,7 +1792,7 @@ function importJson(data) {
     return;
   }
   if (Array.isArray(data.targets)) {
-    state.targets = mergeById(state.targets, data.targets);
+    state.targets = mergeByIdentity([...state.targets, ...data.targets]);
     return;
   }
   if (data.targets_by_instrument) {
@@ -1797,7 +1800,7 @@ function importJson(data) {
     Object.entries(data.targets_by_instrument).forEach(([instrument, rows]) => {
       rows.forEach((row) => newTargets.push(targetFromScraperRow(row, instrument, "browser-json")));
     });
-    state.targets = mergeById(state.targets, newTargets);
+    state.targets = mergeByIdentity([...state.targets, ...newTargets]);
   }
 }
 
@@ -1805,7 +1808,7 @@ function importCsv(text, filename) {
   const rows = parseCsv(text);
   const inst = (filename.match(/_(MODS|LBC|LUCI|PEPSI|SHARK|P-POL)/i)?.[1] || state.meta.activeInstrument || "Unknown").toUpperCase();
   const targets = rows.map((row) => targetFromScraperRow(row, inst, `browser-csv:${filename}`));
-  state.targets = mergeById(state.targets, targets);
+  state.targets = mergeByIdentity([...state.targets, ...targets]);
 }
 
 function targetFromScraperRow(row, instrument, source) {
@@ -1835,13 +1838,55 @@ function targetFromScraperRow(row, instrument, source) {
   };
 }
 
-function mergeById(existing, incoming) {
-  const byId = new Map(existing.map((t) => [t.id, t]));
-  incoming.forEach((t) => {
-    if (byId.has(t.id)) Object.assign(byId.get(t.id), t);
-    else byId.set(t.id, t);
+function mergeByIdentity(targets) {
+  const byKey = new Map();
+  targets.forEach((target) => {
+    const key = targetIdentity(target);
+    const current = byKey.get(key);
+    if (!current) {
+      byKey.set(key, target);
+    } else if (targetSourceRank(target.source) >= targetSourceRank(current.source)) {
+      byKey.set(key, mergeTargetRecords(current, target));
+    } else {
+      byKey.set(key, mergeTargetRecords(target, current));
+    }
   });
-  return [...byId.values()];
+  return [...byKey.values()];
+}
+
+function mergeTargetRecords(older, newer) {
+  const merged = { ...newer };
+  ["status", "notes", "observedAt", "manualOrder", "readmeId"].forEach((key) => {
+    if (![null, undefined, ""].includes(older?.[key]) && [null, undefined, ""].includes(newer?.[key])) {
+      merged[key] = older[key];
+    }
+  });
+  if (![null, undefined, ""].includes(older?.priority) && [null, undefined, ""].includes(newer?.priority)) {
+    merged.priority = older.priority;
+  }
+  return merged;
+}
+
+function targetIdentity(target) {
+  const instrument = normalizeInstrument(target.instrument);
+  const name = String(target.targetName || "").trim().toLowerCase();
+  const program = String(target.programName || "").trim().toLowerCase();
+  if (name && name !== "unknown") return [instrument, program, name].join("|");
+  const ra = Number.isFinite(Number(target.raDeg)) ? Number(target.raDeg).toFixed(2) : "-999.00";
+  const dec = Number.isFinite(Number(target.decDeg)) ? Number(target.decDeg).toFixed(2) : "-999.00";
+  return [instrument, program, ra, dec].join("|");
+}
+
+function targetSourceRank(source) {
+  const text = String(source || "");
+  const date = text.match(/(\d{4})_(\d{2})_(\d{2})/);
+  const dateRank = date ? Number(`${date[1]}${date[2]}${date[3]}`) : 0;
+  let kindRank = 1;
+  if (text.startsWith("json:")) kindRank = 3;
+  else if (text.startsWith("csv:")) kindRank = 2;
+  else if (text.startsWith("browser-json")) kindRank = 1;
+  else if (text.startsWith("browser-csv")) kindRank = 0;
+  return dateRank * 10 + kindRank;
 }
 
 async function rebuildFromFiles() {
