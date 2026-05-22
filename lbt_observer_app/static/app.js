@@ -689,6 +689,7 @@ function renderTable() {
     priorityInput.addEventListener("change", (event) => {
       event.stopPropagation();
       target.priority = toNum(priorityInput.value);
+      target.prioritySource = "manual";
       renderAndSave();
     });
     const statusButton = tr.querySelector(".statusCycle");
@@ -738,6 +739,7 @@ function renderSelected() {
     ["Instrument", target.displayInstrument || target.instrument],
     ["Program", target.programName || ""],
     ["Partner", partnerForTarget(target)],
+    ["Priority source", target.prioritySource || "OSURC"],
     ["RA, Dec", coordLine(target)],
     ["Alt / Airmass", `${fmt(m.alt)} deg / ${fmt(m.airmass, 2)}`],
     ["HA", `${fmt(m.haHours, 2)} hr`],
@@ -909,7 +911,7 @@ function drawSequenceTimeline() {
     const x0 = xForTime(cursor);
     const x1 = xForTime(next);
     const y0 = pad.t + 12 + (idx % 4) * 22;
-    const color = target.id === selectedId ? "#f2b84b" : "#78aef7";
+    const color = priorityColor(target);
     ctx.fillStyle = color;
     ctx.globalAlpha = 0.84;
     ctx.fillRect(x0, y0, Math.max(3, x1 - x0), 14);
@@ -1126,9 +1128,9 @@ function drawAltitudePlot() {
     if (target.raDeg == null || target.decDeg == null) return;
     const isSelected = target.id === selectedId;
     const isQueued = state.sequence.includes(target.id);
-    const stroke = isSelected ? "#f2b84b" : isQueued ? "#78aef7" : targetColor(target);
+    const stroke = priorityColor(target);
     if (isSelected) {
-      drawAltTrack(ctx, target, start, pad, w, h, "rgba(242,184,75,0.24)", 9, []);
+      drawAltTrack(ctx, target, start, pad, w, h, "rgba(255,255,255,0.24)", 9, []);
     }
     if (isQueued && !isSelected) {
       drawAltTrack(ctx, target, start, pad, w, h, "rgba(120,174,247,0.22)", 7, [10, 7]);
@@ -1158,6 +1160,7 @@ function drawAltitudePlot() {
   ctx.lineTo(xNow, h - pad.b);
   ctx.stroke();
   ctx.globalAlpha = 1;
+  drawPriorityLegend(ctx, pad.l + 8, pad.t + 16);
   ctx.fillStyle = "#91a1aa";
   ctx.font = "13px system-ui";
   for (let step = 0; step <= ALT_PLOT_HOURS; step += 1) {
@@ -1172,10 +1175,8 @@ function drawAltitudePlot() {
       ctx.fillStyle = "#91a1aa";
     }
   }
-  ctx.fillStyle = "#f2b84b";
-  ctx.fillText("selected", pad.l + 8, pad.t + 16);
-  ctx.fillStyle = "#78aef7";
-  ctx.fillText("queued", pad.l + 88, pad.t + 16);
+  ctx.fillStyle = "rgba(237,244,247,0.72)";
+  ctx.fillText("selected: white halo; queued: blue halo/dash", pad.l + 8, pad.t + 34);
   ctx.fillStyle = "#91a1aa";
   ctx.font = "13px system-ui";
   const xLabel = `Time (${timezoneLabel(state.meta.timezone)})`;
@@ -1198,12 +1199,33 @@ function lbtMidnightForSelectedNight(instant) {
   return hour >= 12 ? new Date(midnight.getTime() + 24 * 3600 * 1000) : midnight;
 }
 
-function targetColor(target) {
-  const palette = ["#3dc7b5", "#66d17a", "#78aef7", "#ec6a5d", "#d78df0", "#b6d46b", "#f29e4c", "#4cc9f0", "#c77dff", "#90be6d"];
-  let h = 0;
-  const text = target.id || target.targetName || "";
-  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
-  return palette[h % palette.length];
+function priorityColor(target) {
+  const p = Number(target.priority);
+  if (!Number.isFinite(p)) return "#95a7b2";
+  if (p <= 1) return "#ec6a5d";
+  if (p <= 2) return "#f2b84b";
+  if (p <= 10) return "#66d17a";
+  if (p <= 50) return "#3dc7b5";
+  return "#78aef7";
+}
+
+function drawPriorityLegend(ctx, x, y) {
+  const items = [
+    ["P1", "#ec6a5d"],
+    ["P2", "#f2b84b"],
+    ["P<=10", "#66d17a"],
+    ["P<=50", "#3dc7b5"],
+    ["P>50", "#78aef7"]
+  ];
+  ctx.font = "12px system-ui";
+  let dx = x;
+  items.forEach(([label, color]) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(dx, y - 8, 16, 7);
+    ctx.fillStyle = "rgba(237,244,247,0.72)";
+    ctx.fillText(label, dx + 21, y);
+    dx += label.length > 3 ? 76 : 54;
+  });
 }
 
 function setupCanvas(canvas) {
@@ -1355,7 +1377,7 @@ function drawSkyPlot() {
     const y = cy - rr * Math.cos(theta);
     const isSelected = target.id === selectedId;
     const isQueued = state.sequence.includes(target.id);
-    ctx.fillStyle = isSelected ? "#f2b84b" : isQueued ? "#78aef7" : "#3dc7b5";
+    ctx.fillStyle = priorityColor(target);
     ctx.beginPath();
     ctx.arc(x, y, isSelected ? 7 : isQueued ? 5 : 3, 0, Math.PI * 2);
     ctx.fill();
@@ -1369,7 +1391,7 @@ function drawSkyPlot() {
   });
   sequencePoints.forEach((p, idx) => {
     ctx.fillStyle = "#071014";
-    ctx.strokeStyle = "#78aef7";
+    ctx.strokeStyle = priorityColor(p.target);
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
@@ -1739,6 +1761,7 @@ function makeStatusExport() {
       notes: t.notes || "",
       observedAt: t.observedAt || "",
       priority: t.priority ?? null,
+      prioritySource: t.prioritySource || "",
       manualOrder: t.manualOrder ?? null,
       readmeId: t.readmeId || "",
       queued: state.sequence.includes(t.id)
@@ -1779,6 +1802,7 @@ function importJson(data) {
         notes: row.notes || target.notes || "",
         observedAt: row.observedAt || "",
         priority: row.priority ?? target.priority,
+        prioritySource: row.prioritySource || target.prioritySource || "",
         manualOrder: row.manualOrder ?? target.manualOrder,
         readmeId: row.readmeId || target.readmeId || ""
       });
@@ -1824,6 +1848,7 @@ function targetFromScraperRow(row, instrument, source) {
     programName: row.program_name || row.programName || "",
     partner: row.partner || row.Partner || derivePartner(row.program_name || row.programName || ""),
     priority: toNum(row.priority),
+    prioritySource: "browser-import",
     status: "",
     raDeg,
     decDeg,
@@ -1856,7 +1881,7 @@ function mergeByIdentity(targets) {
 
 function mergeTargetRecords(older, newer) {
   const merged = { ...newer };
-  ["status", "notes", "observedAt", "manualOrder", "readmeId"].forEach((key) => {
+  ["status", "notes", "observedAt", "manualOrder", "readmeId", "prioritySource"].forEach((key) => {
     if (![null, undefined, ""].includes(older?.[key]) && [null, undefined, ""].includes(newer?.[key])) {
       merged[key] = older[key];
     }

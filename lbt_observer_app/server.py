@@ -334,8 +334,143 @@ def parse_readme(path: Path) -> dict[str, Any]:
         "pi": pi,
         "conditions": conditions,
         "instructions": instructions,
+        "targetPriorities": extract_readme_target_priorities(compact),
         "text": compact,
     }
+
+
+def extract_readme_target_priorities(text: str) -> dict[str, float]:
+    priorities: dict[str, float] = {}
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    for idx, line in enumerate(lines):
+        if not looks_like_priority_header(line):
+            continue
+        rows = lines[idx + 1: idx + 180]
+        if "," in line:
+            priorities.update(parse_delimited_priority_rows(line, rows, ","))
+        elif "\t" in line:
+            priorities.update(parse_delimited_priority_rows(line, rows, "\t"))
+        else:
+            priorities.update(parse_fixed_width_priority_rows(line, rows))
+    return priorities
+
+
+def looks_like_priority_header(line: str) -> bool:
+    lower = line.lower()
+    if "target" not in lower and "gaia" not in lower:
+        return False
+    if "sorted by priority" in lower or "prioritized by" in lower:
+        return False
+    if "," in line and line.count(",") < 3:
+        return False
+    if "\t" in line and line.count("\t") < 3:
+        return False
+    if "target list" in lower and not re.search(r"\b(ra|dec|j2000|source id|priority|pri)\b", lower):
+        return False
+    if "," not in line and "\t" not in line and not re.search(r"\b(ra|dec|j2000|source id)\b", lower):
+        return False
+    return bool(re.search(r"\b(priority|pri)\b", lower))
+
+
+def parse_delimited_priority_rows(header: str, rows: list[str], delimiter: str) -> dict[str, float]:
+    try:
+        header_cols = next(csv.reader([header], delimiter=delimiter))
+    except csv.Error:
+        return {}
+    clean = [re.sub(r"\s+", " ", c.strip().lower()) for c in header_cols]
+    target_idx = next((i for i, c in enumerate(clean) if "target" in c or "source id" in c), None)
+    priority_idx = next((i for i, c in enumerate(clean) if re.search(r"\b(priority|pri)\b", c)), None)
+    if target_idx is None or priority_idx is None:
+        return {}
+    out: dict[str, float] = {}
+    for row in rows:
+        if not row.strip():
+            if out:
+                break
+            continue
+        if set(row.strip()) <= {"-", "=", " "}:
+            continue
+        try:
+            cols = next(csv.reader([row], delimiter=delimiter))
+        except csv.Error:
+            continue
+        if len(cols) <= max(target_idx, priority_idx):
+            continue
+        name = cols[target_idx].strip()
+        priority = safe_float(cols[priority_idx])
+        key = normalize_target_key(name)
+        if key and priority is not None:
+            out[key] = priority
+    return out
+
+
+def parse_fixed_width_priority_rows(header: str, rows: list[str]) -> dict[str, float]:
+    lower = header.lower()
+    pri_match = re.search(r"\b(priority|pri)\b", lower)
+    if not pri_match:
+        return {}
+    pri_start = pri_match.start()
+    later_headers = [m.start() for m in re.finditer(r"\S+", header) if m.start() > pri_start]
+    pri_end = later_headers[0] if later_headers else pri_start + 12
+    out: dict[str, float] = {}
+    for row in rows:
+        stripped = row.strip()
+        if not stripped:
+            if out:
+                break
+            continue
+        if set(stripped) <= {"-", "=", " "}:
+            continue
+        if re.search(r"\b(calibrations|finding charts|special instructions|manifest|created)\b", stripped, re.I):
+            break
+        name = first_table_token(stripped)
+        if not name:
+            continue
+        priority_text = row[pri_start:pri_end].strip()
+        priority = safe_float(priority_text)
+        if priority is None and (not priority_text or re.fullmatch(r"[-\s]+", priority_text)):
+            priority = fallback_priority_from_row(stripped, header)
+        if priority is not None:
+            out[normalize_target_key(name)] = priority
+    return out
+
+
+def first_table_token(line: str) -> str:
+    tokens = line.split()
+    if not tokens:
+        return ""
+    if tokens[0].strip("#").isdigit() and len(tokens) > 1:
+        return tokens[1]
+    if len(tokens) >= 3 and tokens[0].lower() == "gaia" and tokens[1].lower() == "dr3":
+        return tokens[2]
+    if len(tokens) >= 2 and tokens[0].upper() in {"TIC", "HIP", "HD"}:
+        return f"{tokens[0]}{tokens[1]}"
+    return tokens[0]
+
+
+def fallback_priority_from_row(line: str, header: str) -> float | None:
+    tokens = line.split()
+    if not tokens:
+        return None
+    lower = header.lower()
+    if re.search(r"\bpri\b", lower) and len(tokens) >= 4:
+        # Tables like OSU_PANTERA put Pri immediately before exposure-time columns.
+        for token in reversed(tokens[:-2]):
+            value = safe_float(token)
+            if value is not None and 0 <= value <= 20:
+                return value
+    for token in reversed(tokens):
+        value = safe_float(token)
+        if value is not None and 0 <= value <= 999:
+            return value
+    return None
+
+
+def normalize_target_key(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"\.(xml|fits?|txt|csv|jpeg|jpg|png)$", "", text)
+    text = re.sub(r"^gaia\s*dr3\s*", "", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
 
 
 def read_readmes() -> list[dict[str, Any]]:
@@ -418,6 +553,7 @@ def scraper_row_to_target(row: dict[str, Any], instrument_hint: str, source: str
         "programName": str(program).strip(),
         "partner": str(partner).strip(),
         "priority": safe_float(row.get("priority")),
+        "prioritySource": "osurc",
         "status": "",
         "raDeg": ra_deg,
         "decDeg": dec_deg,
@@ -459,8 +595,33 @@ def attach_readmes(targets: list[dict[str, Any]], readmes: list[dict[str, Any]])
             target["readmeId"] = best["id"]
             if best.get("partner") and (not target.get("partner") or target.get("partner") == target.get("programName")):
                 target["partner"] = best["partner"]
+            readme_priority = readme_priority_for_target(target, best)
+            if readme_priority is not None:
+                target["priority"] = readme_priority
+                target["prioritySource"] = f"readme:{best.get('projectId') or best.get('filename')}"
         if not target.get("partner") or target.get("partner") == target.get("programName"):
             target["partner"] = derive_partner(target.get("programName"))
+
+
+def readme_priority_for_target(target: dict[str, Any], readme: dict[str, Any]) -> float | None:
+    priorities = readme.get("targetPriorities") or {}
+    if not priorities:
+        return None
+    names = [
+        target.get("targetName", ""),
+        target.get("object", ""),
+        target.get("raText", ""),
+    ]
+    for name in names:
+        key = normalize_target_key(name)
+        if key and key in priorities:
+            return safe_float(priorities[key])
+    target_key = normalize_target_key(target.get("targetName", ""))
+    if target_key:
+        for key, value in priorities.items():
+            if key and (target_key in key or key in target_key):
+                return safe_float(value)
+    return None
 
 
 def token_match(needle: str, haystack: str) -> bool:
@@ -508,7 +669,7 @@ def target_source_rank(value: Any) -> tuple[str, int, str]:
 
 def merge_target_records(older: dict[str, Any], newer: dict[str, Any]) -> dict[str, Any]:
     merged = dict(newer)
-    for key in ["status", "notes", "observedAt", "manualOrder", "readmeId"]:
+    for key in ["status", "notes", "observedAt", "manualOrder", "readmeId", "prioritySource"]:
         if older.get(key) not in (None, "") and newer.get(key) in (None, ""):
             merged[key] = older[key]
     if older.get("priority") not in (None, "") and newer.get("priority") in (None, ""):
@@ -588,9 +749,14 @@ def carry_observer_state(new_state: dict[str, Any], old_state: dict[str, Any]) -
             continue
         if old.get("id") and target.get("id"):
             id_map[old["id"]] = target["id"]
-        for key in ["status", "notes", "observedAt", "priority", "manualOrder", "readmeId"]:
+        for key in ["status", "notes", "observedAt", "manualOrder", "readmeId", "prioritySource"]:
             if key in old and old.get(key) not in (None, ""):
                 target[key] = old[key]
+        if old.get("priority") not in (None, ""):
+            if str(target.get("prioritySource", "")).startswith("readme:") and old.get("prioritySource") != "manual":
+                pass
+            else:
+                target["priority"] = old["priority"]
 
     old_sequence = old_state.get("sequence") or []
     new_target_ids = {t.get("id") for t in new_state.get("targets", [])}
