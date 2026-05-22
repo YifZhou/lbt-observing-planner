@@ -1,0 +1,997 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --bg2: #111821;
+  --panel: #141c25;
+  --panel2: #18222d;
+  --line: #273443;
+  --line2: #385063;
+  --text: #edf4f7;
+  --muted: #91a1aa;
+  --dim: #657782;
+  --teal: #3dc7b5;
+  --gold: #f2b84b;
+  --red: #ec6a5d;
+  --green: #66d17a;
+  --blue: #78aef7;
+  --ink: #071014;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select,
+input,
+textarea {
+  color: var(--text);
+  background: #0e151d;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+button {
+  min-height: 34px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+button:hover,
+select:hover,
+input:hover,
+textarea:hover {
+  border-color: var(--line2);
+}
+
+button:focus,
+select:focus,
+input:focus,
+textarea:focus {
+  outline: 2px solid rgba(61, 199, 181, 0.35);
+  outline-offset: 1px;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  line-height: 1.35;
+}
+
+input,
+select {
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar {
+  height: 74px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 18px;
+  background: #0d131a;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 280px;
+}
+
+.mark {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #99a0b9 0%, #687180 45%, #14262a 100%);
+  border: 1px solid rgba(237, 244, 247, 0.18);
+  overflow: hidden;
+}
+
+.mark svg {
+  width: 42px;
+  height: 42px;
+  display: block;
+}
+
+.logoDoor,
+.logoPier {
+  fill: #eef1e8;
+  stroke: rgba(7, 16, 20, 0.32);
+  stroke-width: 0.8;
+}
+
+.logoPier {
+  fill: #f7f8ef;
+}
+
+.logoBridge {
+  fill: #d7d3bd;
+}
+
+.logoMirror {
+  fill: #f7fbff;
+  stroke: #26323a;
+  stroke-width: 1.1;
+}
+
+.logoMirrorLine {
+  fill: none;
+  stroke: #5f7583;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+}
+
+.logoBase {
+  fill: #6f8e81;
+}
+
+.logoTrees {
+  fill: none;
+  stroke: #162622;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 19px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 13px;
+  color: var(--text);
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.brand p,
+.panelHeader span,
+#targetCount,
+#plotTargetLabel {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.timebar {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+
+.timebar label {
+  flex: 0 0 auto;
+}
+
+#dateInput,
+#timeInput,
+#lbtLocalTime,
+.kv span,
+.selectedMeta span {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+#dateInput {
+  width: 132px;
+}
+
+#timeInput {
+  width: 112px;
+}
+
+.sliderLabel {
+  flex: 0 0 240px;
+  min-width: 240px;
+}
+
+#timeSlider {
+  width: 100%;
+}
+
+.timeReadout {
+  width: 166px;
+  flex: 0 0 166px;
+  min-height: 34px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #101720;
+}
+
+.timeReadout span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.timeReadout strong {
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+input[type="range"] {
+  padding: 0;
+}
+
+.primaryBtn {
+  background: var(--teal);
+  color: var(--ink);
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.iconBtn {
+  background: #121b24;
+}
+
+.shell {
+  height: calc(100vh - 74px);
+  display: grid;
+  grid-template-columns: 280px minmax(680px, 1fr) 400px;
+  gap: 12px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.sidebar,
+.workbench,
+.detail {
+  min-height: 0;
+  overflow: auto;
+}
+
+.sidebar,
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mainArea {
+  display: contents;
+}
+
+.workbench {
+  min-height: 0;
+}
+
+.workspaceView {
+  height: 100%;
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(320px, 1fr);
+  gap: 12px;
+}
+
+#plannerView {
+  grid-template-rows: auto minmax(320px, 1fr);
+}
+
+.workspaceView.hidden,
+.hidden {
+  display: none !important;
+}
+
+.panel,
+.plotPanel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.panel {
+  padding: 14px;
+}
+
+.compact {
+  display: grid;
+  gap: 12px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.panelHeader .shortcutHint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: none;
+}
+
+.tabs {
+  display: grid;
+  gap: 6px;
+}
+
+.tabs button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  background: #0f1720;
+}
+
+.tabs strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabs button.active {
+  border-color: var(--teal);
+  background: rgba(61, 199, 181, 0.12);
+}
+
+.tabs span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.toolTabs,
+.dataActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.toolTabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.toolTabs button {
+  min-width: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolTabs button.active {
+  border-color: var(--gold);
+  background: rgba(242, 184, 75, 0.12);
+}
+
+.dataActions button:first-child,
+.dataActions .primaryBtn {
+  grid-column: 1 / -1;
+}
+
+.helpText {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.kv {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.kv div,
+.selectedMeta div,
+.metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.kv b,
+.selectedMeta b,
+.metric b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.buttonGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.buttonGrid button:last-child {
+  grid-column: 1 / -1;
+}
+
+.log {
+  display: none;
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  color: #c9d7de;
+  background: #080d12;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.metric {
+  min-height: 72px;
+  flex-direction: column;
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+}
+
+.metric strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.sidebar .metrics {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.sidebar .metric {
+  min-height: 0;
+  padding: 10px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 6px;
+}
+
+.sidebar .metric strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.plotGrid {
+  display: grid;
+  grid-template-columns: minmax(560px, 2fr) minmax(280px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.plotPanel {
+  min-height: 390px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 330px;
+}
+
+.skyPanel canvas {
+  aspect-ratio: 1 / 1;
+  height: min(330px, 100%);
+  max-height: 330px;
+}
+
+.targetPanel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.targetFilters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(105px, 0.55fr) minmax(105px, 0.55fr) minmax(90px, 0.45fr) auto auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.tableWrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #202c37;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.emptyCell {
+  color: var(--muted);
+  text-align: center;
+  padding: 28px 12px;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #101820;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+th.activeSort {
+  color: var(--teal);
+}
+
+th.activeSort::after {
+  content: attr(data-dir);
+  margin-left: 6px;
+  color: var(--dim);
+  font-size: 10px;
+}
+
+tbody tr {
+  cursor: pointer;
+}
+
+tbody tr:hover,
+tbody tr.selected {
+  background: rgba(61, 199, 181, 0.1);
+}
+
+tbody tr.dropTarget {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+.priorityInput {
+  width: 68px;
+  min-height: 28px;
+}
+
+.coordCell,
+.numericCell,
+.priorityInput {
+  color: #c9d7de;
+  font-family: "SFMono-Regular", "Roboto Mono", "Cascadia Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.numericCell {
+  text-align: right;
+}
+
+.statusCycle {
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.targetName {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  color: #061016;
+  background: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badge.observed {
+  background: var(--green);
+}
+
+.badge.skip {
+  background: var(--red);
+}
+
+.badge.queued {
+  background: var(--blue);
+}
+
+.warningBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 26px;
+}
+
+.warnBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #061016;
+  background: #95a7b2;
+  white-space: nowrap;
+}
+
+.warnBadge.warn {
+  background: var(--gold);
+}
+
+.warnBadge.bad {
+  background: var(--red);
+}
+
+.warnBadge.info {
+  background: var(--blue);
+}
+
+.targetOk {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.selectedPanel,
+.readmePanel {
+  display: grid;
+  gap: 12px;
+}
+
+.selectedMeta {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.diagnosticsGrid {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.diagnosticsGrid div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.diagnosticsGrid b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.diagnosticsGrid span {
+  text-align: right;
+  font-family: "SFMono-Regular", "Roboto Mono", "Cascadia Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.statusButtons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.statusButtons button.active {
+  border-color: var(--teal);
+  background: rgba(61, 199, 181, 0.14);
+}
+
+.sequence {
+  display: grid;
+  gap: 8px;
+  padding-left: 22px;
+  margin: 0;
+}
+
+.sequence li {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1720;
+}
+
+.sequence .seqName {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 13px;
+}
+
+.sequence .seqActions {
+  display: flex;
+  gap: 6px;
+}
+
+#sequenceTimeline {
+  width: 100%;
+  height: 160px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #081017;
+}
+
+.sequence button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.readmeIndexPanel {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
+.readmeIndexPanel.hidden {
+  display: none;
+}
+
+.readmeIndexList {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.readmeIndexList button {
+  width: 100%;
+  min-height: 68px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  text-align: left;
+  background: #0f1720;
+}
+
+.readmeIndexList button.active {
+  border-color: var(--teal);
+  background: rgba(61, 199, 181, 0.12);
+}
+
+.readmeIndexList strong,
+.readmeIndexList small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.readmeIndexList span {
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.readmeIndexList small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.readmeSummary {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.readmeText {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  color: #d9e4e9;
+  background: #081017;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.toolPanel,
+.readmeWorkspace {
+  min-height: 100%;
+}
+
+#readmesWorkspaceView {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.atmLayout {
+  display: grid;
+  grid-template-columns: 260px minmax(420px, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.atmControls {
+  display: grid;
+  gap: 12px;
+}
+
+.atmPlotColumn {
+  min-width: 0;
+}
+
+.atmStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 8px 18px;
+  margin-bottom: 12px;
+}
+
+.atmStats div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1720;
+}
+
+.atmStats b {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.atmSlitSliderLabel {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) 68px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #0f1720;
+}
+
+.atmSlitSliderLabel span {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.atmSlitSliderLabel strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.largeReadme {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+}
+
+.readmeWorkspace textarea {
+  height: 100%;
+  min-height: 0;
+  resize: none;
+}
+
+.readmeWorkspace {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(180px, 0.8fr) minmax(320px, 1.4fr);
+  gap: 10px;
+  overflow: hidden;
+}
+
+.readmeWorkspace label {
+  min-height: 0;
+}
+
+#atmCanvas {
+  height: 520px;
+}
+
+@media (max-width: 1180px) {
+  body {
+    overflow: auto;
+  }
+
+  .topbar,
+  .timebar {
+    align-items: stretch;
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .shell {
+    height: auto;
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .detail {
+    display: flex;
+  }
+
+  .plotGrid,
+  .atmLayout,
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+}

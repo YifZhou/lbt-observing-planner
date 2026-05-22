@@ -1,0 +1,51 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.conda/
+
+# Local editor and tool state
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+*.log
+
+# Local app state and generated observing data
+lbt_observer_app/data/
+lbt_targets_*.json
+lbt_targets_*.csv
+readme_files_*/
+download_summary.txt
+
+# Local reference material and private observing inputs
+Whittle_LBTO_Planner_*.xlsx
+*.xls
+*.xlsx
+
+# Example or downloaded readmes may contain program-specific observing details.
+Example_Readmes/
+*.readme

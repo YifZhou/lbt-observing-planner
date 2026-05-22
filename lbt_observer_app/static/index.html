@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LBT Observing Planner</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark" aria-label="LBT Observing Planner logo">
+        <svg viewBox="0 0 64 64" role="img" aria-hidden="true">
+          <rect x="4" y="6" width="16" height="42" rx="1.5" class="logoDoor"/>
+          <rect x="44" y="6" width="16" height="42" rx="1.5" class="logoDoor"/>
+          <rect x="28" y="5" width="8" height="44" rx="1.2" class="logoPier"/>
+          <rect x="18" y="30" width="28" height="5" rx="1" class="logoBridge"/>
+          <circle cx="23" cy="29" r="8.5" class="logoMirror"/>
+          <circle cx="41" cy="29" r="8.5" class="logoMirror"/>
+          <path d="M19 31c3-3 6-5 10-5M37 31c3-3 6-5 10-5" class="logoMirrorLine"/>
+          <rect x="14" y="48" width="36" height="7" rx="1.5" class="logoBase"/>
+          <path d="M5 58h54M11 58l4-8 4 8M22 58l3-6 3 6M39 58l4-8 4 8M50 58l3-6 3 6" class="logoTrees"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Observing Planner</h1>
+        <p id="stateStamp">Loading local state</p>
+      </div>
+    </div>
+    <div class="timebar">
+      <label>Date <input id="dateInput" type="date"></label>
+      <label>Time <input id="timeInput" type="time" step="60"></label>
+      <label class="sliderLabel">Night
+        <input id="timeSlider" type="range" min="0" max="840" step="1">
+      </label>
+      <button id="timeMinusBtn" class="iconBtn" title="Move time back 30 minutes; rolls to the previous date at midnight">-30m</button>
+      <button id="timePlusBtn" class="iconBtn" title="Move time forward 30 minutes; rolls to the next date at midnight">+30m</button>
+      <div class="timeReadout">
+        <span>LBT local</span>
+        <strong id="lbtLocalTime">--</strong>
+      </div>
+      <label>Zone
+        <select id="zoneInput">
+          <option value="UTC">UTC</option>
+          <option value="TUCSON">Tucson</option>
+          <option value="ET">ET</option>
+          <option value="BROWSER">Browser local</option>
+        </select>
+      </label>
+      <button id="nowBtn" class="iconBtn" title="Use current time">Now</button>
+      <button id="saveBtn" class="primaryBtn">Save</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <aside class="sidebar">
+      <section class="panel compact">
+        <div class="panelHeader">
+          <h2>Instruments</h2>
+        </div>
+        <div id="instrumentTabs" class="tabs"></div>
+        <div class="toolTabs">
+          <button id="targetsViewBtn">Targets</button>
+          <button id="atmViewBtn">AtmDisp</button>
+          <button id="readmesViewBtn">Readmes</button>
+        </div>
+      </section>
+
+      <section class="panel compact summaryPanel">
+        <h2>Run</h2>
+        <div class="metrics" id="summaryCards"></div>
+      </section>
+
+      <section class="panel compact">
+        <h2>Night</h2>
+        <div id="nightStats" class="kv"></div>
+      </section>
+
+      <section class="panel compact">
+        <div class="panelHeader">
+          <h2>Data</h2>
+          <input id="fileInput" type="file" accept=".json,.csv" hidden>
+        </div>
+        <div class="dataActions">
+          <button id="scrapeBtn" class="primaryBtn" title="Run the OSURC Selenium scraper for the selected date, then reload local targets and readmes.">Update from OSURC</button>
+          <button id="rebuildBtn" title="Re-read existing OSURC scraper outputs and readme files.">Refresh local files</button>
+          <button id="exportStatusBtn" title="Export only target status, notes, priorities, and manual order for colleagues.">Export exchange file</button>
+          <button id="importBtn" title="Import an exchange file from a colleague, or target CSV/JSON from the scraper.">Import file</button>
+        </div>
+        <p class="helpText">Targets load from OSURC scraper outputs. Exchange files carry status, notes, priority edits, and manual ordering.</p>
+        <pre id="scrapeLog" class="log"></pre>
+      </section>
+    </aside>
+
+    <section class="mainArea">
+    <section class="workbench">
+      <div id="plannerView" class="workspaceView">
+        <section class="plotGrid">
+          <div class="plotPanel altitudePanel">
+            <div class="panelHeader">
+              <h2>Altitude</h2>
+              <span id="plotTargetLabel"></span>
+            </div>
+            <canvas id="altCanvas" width="1280" height="420"></canvas>
+          </div>
+          <div class="plotPanel skyPanel">
+            <div class="panelHeader">
+              <h2>Sky</h2>
+              <span>azimuth/elevation</span>
+            </div>
+            <canvas id="skyCanvas" width="520" height="520"></canvas>
+          </div>
+        </section>
+
+        <section class="panel targetPanel">
+          <div class="panelHeader">
+            <h2>Targets</h2>
+            <span id="targetCount"></span>
+          </div>
+          <div class="targetFilters">
+            <label>Search <input id="searchInput" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. OSU ra&gt;10 dec&lt;45"></label>
+            <label>Status
+              <select id="statusFilter">
+                <option value="active">Active</option>
+                <option value="all">All</option>
+                <option value="observed">Observed</option>
+                <option value="todo">Todo</option>
+                <option value="skip">Skip</option>
+              </select>
+            </label>
+            <label>Flags
+              <select id="flagFilter">
+                <option value="all">All</option>
+                <option value="any">Any flag</option>
+                <option value="airmass">Airmass</option>
+                <option value="moon">Moon</option>
+                <option value="ha">HA</option>
+                <option value="below">Down</option>
+                <option value="none">No flags</option>
+              </select>
+            </label>
+            <label>Show top
+              <select id="targetLimit">
+                <option value="0">All</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+            <label class="check"><input id="upOnly" type="checkbox"> Up now</label>
+            <label class="check"><input id="hideDone" type="checkbox" checked> Hide done</label>
+            <button id="clearFiltersBtn" class="iconBtn" title="Clear filters">Clear</button>
+          </div>
+          <div class="tableWrap">
+            <table id="targetTable">
+              <thead>
+                <tr>
+                  <th data-sort="targetName">Target</th>
+                  <th data-sort="status">Status</th>
+                  <th>Flags</th>
+                  <th data-sort="raDeg">RA</th>
+                  <th data-sort="decDeg">Dec</th>
+                  <th data-sort="programName">Program</th>
+                  <th data-sort="priority">Pr</th>
+                  <th data-sort="alt">Alt</th>
+                  <th data-sort="airmass">Airmass</th>
+                  <th data-sort="haHours">HA</th>
+                  <th data-sort="moonSep">Moon</th>
+                  <th data-sort="visitHours">Visit</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <div id="atmDispView" class="workspaceView hidden">
+        <section class="panel toolPanel">
+          <div class="panelHeader">
+            <h2>Atmospheric Dispersion</h2>
+            <span id="atmTargetLabel"></span>
+          </div>
+          <div class="atmLayout">
+            <div class="atmControls">
+              <label>Slit PA, deg E of N <input id="atmSlitAngle" type="number" step="1" value="0"></label>
+              <label>Guide wavelength, micron <input id="atmGuideWave" type="number" step="0.01" value="0.62"></label>
+              <label>Blue wavelength, micron <input id="atmBlueWave" type="number" step="0.01" value="0.35"></label>
+              <label>Red wavelength, micron <input id="atmRedWave" type="number" step="0.01" value="1.00"></label>
+              <label>Seeing FWHM, arcsec <input id="atmSeeing" type="number" step="0.1" value="0.8"></label>
+              <label>Slit width, arcsec <input id="atmSlitWidth" type="number" step="0.1" value="1.0"></label>
+            </div>
+            <div class="atmPlotColumn">
+              <div id="atmStats" class="atmStats"></div>
+              <label class="atmSlitSliderLabel">
+                <span>Slit PA</span>
+                <input id="atmSlitSlider" type="range" min="0" max="360" step="1" value="0">
+                <strong id="atmSlitSliderValue">0 deg</strong>
+              </label>
+              <canvas id="atmCanvas" width="760" height="420"></canvas>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="readmesWorkspaceView" class="workspaceView hidden">
+        <section class="panel readmeWorkspace">
+          <div class="panelHeader">
+            <h2>Observer Readmes</h2>
+            <span id="readmeWorkspaceTitle"></span>
+          </div>
+          <div id="readmeWorkspaceMeta" class="readmeSummary"></div>
+          <label>Observer notes for this readme
+            <textarea id="readmeNotesBox" rows="10"></textarea>
+          </label>
+          <pre id="readmeWorkspaceText" class="readmeText largeReadme"></pre>
+        </section>
+      </div>
+    </section>
+
+    <aside class="detail">
+      <section id="readmeIndexPanel" class="panel readmeIndexPanel hidden">
+        <div class="panelHeader">
+          <h2>Readmes</h2>
+          <span id="readmeIndexCount"></span>
+        </div>
+        <div id="readmeIndexList" class="readmeIndexList"></div>
+      </section>
+
+      <section id="sequencePanel" class="panel compact">
+        <div class="panelHeader">
+          <h2>Sequence</h2>
+          <span class="shortcutHint">Q queue/unqueue · D done</span>
+          <button id="clearSequenceBtn" class="iconBtn">Clear</button>
+        </div>
+        <canvas id="sequenceTimeline" width="360" height="160"></canvas>
+        <ol id="sequenceList" class="sequence"></ol>
+      </section>
+
+      <section id="targetDetailPanel" class="panel selectedPanel">
+        <div class="panelHeader">
+          <h2 id="selectedTitle">Target</h2>
+          <button id="queueBtn" class="primaryBtn">Queue</button>
+        </div>
+        <div id="selectedMeta" class="selectedMeta"></div>
+        <div id="warningBadges" class="warningBadges"></div>
+        <div class="statusButtons">
+          <button data-status="">Todo</button>
+          <button data-status="observed">Observed</button>
+          <button data-status="skip">Skip</button>
+        </div>
+        <label>Observer notes
+          <textarea id="notesBox" rows="6" placeholder="Notes entered here persist in local state."></textarea>
+        </label>
+      </section>
+
+      <section id="diagnosticsPanel" class="panel compact">
+        <div class="panelHeader">
+          <h2>Diagnostics</h2>
+          <span>selected target</span>
+        </div>
+        <div id="diagnosticsGrid" class="diagnosticsGrid"></div>
+      </section>
+
+      <section id="targetReadmePanel" class="panel readmePanel">
+        <div class="panelHeader">
+          <h2>Readme</h2>
+          <select id="readmeSelect"></select>
+        </div>
+        <div id="readmeSummary" class="readmeSummary"></div>
+        <pre id="readmeText" class="readmeText"></pre>
+      </section>
+    </aside>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
