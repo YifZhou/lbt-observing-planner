@@ -57,7 +57,9 @@ The local web app itself uses only the Python standard library. The packages in 
 - `selenium`
 - `requests`
 
-You also need Google Chrome or Chromium and a compatible ChromeDriver. Recent Selenium versions can often manage the driver automatically. If that fails, install ChromeDriver manually and make sure it is on your `PATH`.
+Selenium 4.6 and later includes Selenium Manager. In a normal online local environment, Selenium Manager discovers, downloads, and caches the needed browser driver automatically. Manual ChromeDriver installation should not be needed.
+
+On locked-down machines, offline systems, or managed observatory computers, you may still need to preinstall an approved browser and driver through the local system administrator.
 
 ## Run Locally
 
