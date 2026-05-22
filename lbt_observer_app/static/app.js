@@ -452,6 +452,8 @@ function computeMetrics() {
   metricsCache = new Map();
   const date = selectedUtc();
   const moon = moonPosition(date);
+  const sun = sunPosition(date);
+  const sunAlt = altAz(sun.raDeg, sun.decDeg, date, LBT.latDeg, LBT.lonDeg).alt;
   const moonAltAz = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
   for (const target of state.targets) {
     const pos = target.raDeg == null || target.decDeg == null
@@ -460,7 +462,8 @@ function computeMetrics() {
     const moonSep = target.raDeg == null || target.decDeg == null
       ? NaN
       : angularSep(target.raDeg, target.decDeg, moon.raDeg, moon.decDeg);
-    metricsCache.set(target.id, { ...pos, moonSep, moonAlt: moonAltAz.alt, moonIllum: moon.phase });
+    const sky = skyBrightnessEstimate({ ...pos, moonSep, moonAlt: moonAltAz.alt, moonIllum: moon.phase, sunAlt });
+    metricsCache.set(target.id, { ...pos, moonSep, moonAlt: moonAltAz.alt, moonIllum: moon.phase, sunAlt, ...sky });
   }
 }
 
@@ -607,6 +610,18 @@ function lbtNightWindowStart(instant) {
   return new Date(center.getTime() - (ALT_PLOT_HOURS / 2) * 3600 * 1000);
 }
 
+function skyBrightnessEstimate(m) {
+  if (!Number.isFinite(m.alt) || m.alt <= 0) return { skyMag: NaN, skyNL: NaN };
+  const moonAltFactor = m.moonAlt > 0 ? Math.sqrt(Math.sin(rad(clamp(m.moonAlt, 0, 90)))) : m.moonAlt > -6 ? 0.25 : 0;
+  const sepFactor = Math.pow(clamp((125 - m.moonSep) / 125, 0, 1), 1.55);
+  const airmassFactor = clamp((Number(m.airmass) || 1) / 1.35, 0.7, 2.2);
+  const moonDelta = 3.2 * Math.pow(clamp(m.moonIllum || 0, 0, 1), 0.75) * moonAltFactor * sepFactor * airmassFactor;
+  const twilightDelta = m.sunAlt > -18 ? Math.pow(clamp((m.sunAlt + 18) / 18, 0, 1), 1.7) * 4.2 : 0;
+  const skyMag = clamp(21.8 - moonDelta - twilightDelta, 16.5, 22.0);
+  const skyNL = 34.08 * Math.pow(10, 0.4 * (21.587 - skyMag));
+  return { skyMag, skyNL };
+}
+
 function targetSortValue(t, key) {
   const m = metricsCache.get(t.id) || {};
   if (key in m) return m[key];
@@ -642,12 +657,15 @@ function renderTable() {
   });
   if (!rows.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="12" class="emptyCell">No targets loaded. Run Update from OSURC, or import scraper output.</td>`;
+    tr.innerHTML = `<td colspan="13" class="emptyCell">No targets loaded. Run Update from OSURC, or import scraper output.</td>`;
     tbody.appendChild(tr);
     return;
   }
   for (const target of rows) {
     const m = metricsCache.get(target.id) || {};
+    const timeLeft = timeLeftAboveAltitude(target, 30);
+    const visitClass = visitWarningClass(target, timeLeft);
+    const visitTitle = visitWarningTitle(target, timeLeft);
     const tr = document.createElement("tr");
     tr.className = target.id === selectedId ? "selected" : "";
     tr.draggable = true;
@@ -655,16 +673,17 @@ function renderTable() {
     tr.innerHTML = `
       <td><div class="targetName"><strong>${escapeHtml(target.targetName)}</strong></div></td>
       <td><button class="statusCycle" title="Cycle todo and observed">${statusBadge(target.status, state.sequence.includes(target.id))}</button></td>
-      <td>${warningBadgeHtml(target, "compact")}</td>
       <td class="coordCell">${escapeHtml(raShort(target))}</td>
       <td class="coordCell">${escapeHtml(decShort(target))}</td>
       <td>${escapeHtml(target.programName || "")}</td>
       <td class="numericCell"><input class="priorityInput" type="number" step="0.1" value="${target.priority ?? ""}" title="Edit priority"></td>
-      <td class="numericCell">${fmt(m.alt)}</td>
+      <td class="numericCell warningCell ${visitClass}" title="${visitTitle}">${fmt(Number(target.visitHours), 2)}</td>
+      <td class="numericCell warningCell ${altWarningClass(m)}" title="${altWarningTitle(m)}">${fmt(m.alt)}</td>
       <td class="numericCell">${fmt(m.airmass, 2)}</td>
       <td class="numericCell">${fmt(m.haHours, 2)}</td>
-      <td class="numericCell moonAngleCell" style="${moonCellStyle(m)}" title="${moonCellTitle(m)}"><span>${fmt(m.moonSep, 0)}</span></td>
-      <td class="numericCell">${fmt(Number(target.visitHours), 2)}</td>`;
+      <td class="numericCell warningCell ${moonWarningClass(target)} moonAngleCell" style="${moonCellStyle(m)}" title="${moonCellTitle(m)}"><span>${fmt(m.moonSep, 0)}</span></td>
+      <td class="numericCell warningCell ${skyWarningClass(m)}" title="${skyCellTitle(m)}">${fmt(m.skyMag, 1)}</td>
+      <td class="flagsCell">${warningBadgeHtml(target, "compact")}</td>`;
     tr.addEventListener("click", () => {
       selectedId = target.id;
       renderSelected();
@@ -707,7 +726,7 @@ function moonCellStyle(m) {
   const illum = clamp(Number(m.moonIllum) || 0, 0, 1);
   const fill = Math.round(illum * 100);
   const moonUp = Number(m.moonAlt) > 0;
-  const alpha = moonUp ? 0.1 + illum * 0.28 : 0.06 + illum * 0.12;
+  const alpha = moonUp ? 0.1 + illum * 0.24 : 0.05 + illum * 0.1;
   const color = moonUp ? `rgba(242, 184, 75, ${alpha.toFixed(2)})` : `rgba(149, 167, 178, ${alpha.toFixed(2)})`;
   return `--moon-fill:${fill}%;--moon-color:${color}`;
 }
@@ -716,6 +735,74 @@ function moonCellTitle(m) {
   if (!Number.isFinite(m.moonSep) || !Number.isFinite(m.moonIllum)) return "";
   const up = Number(m.moonAlt) > 0 ? "up" : "down";
   return `Moon sep ${fmt(m.moonSep, 1)} deg; illum ${fmt(m.moonIllum * 100, 0)}%; moon ${up}`;
+}
+
+function altWarningClass(m) {
+  if (!Number.isFinite(m.alt) || m.alt <= 0) return "bad";
+  if (m.alt < 15) return "bad";
+  if (m.alt < 30 || m.airmass > 2) return "warn";
+  if (m.alt < 40 || m.airmass > 1.55) return "soft";
+  return "";
+}
+
+function altWarningTitle(m) {
+  if (!Number.isFinite(m.alt)) return "Missing altitude";
+  return `Altitude ${fmt(m.alt, 1)} deg; airmass ${fmt(m.airmass, 2)}`;
+}
+
+function visitWarningClass(target, timeLeft) {
+  const visit = Number(target.visitHours);
+  if (!Number.isFinite(visit) || visit <= 0) return "";
+  const left = Number(timeLeft);
+  if (!Number.isFinite(left) || left <= 0) return "bad";
+  if (left < visit) return "bad";
+  if (left < visit * 1.5) return "warn";
+  if (left < visit * 2.5) return "soft";
+  return "";
+}
+
+function visitWarningTitle(target, timeLeft) {
+  const visit = Number(target.visitHours);
+  const left = Number(timeLeft);
+  if (!Number.isFinite(visit)) return "No visit duration";
+  return `Visit ${fmt(visit, 2)} hr; time left above 30 deg ${fmt(left, 2)} hr`;
+}
+
+function timeLeftAboveAltitude(target, altLimitDeg) {
+  if (target.raDeg == null || target.decDeg == null) return NaN;
+  const start = selectedUtc();
+  const end = new Date(lbtNightWindowStart(start).getTime() + ALT_PLOT_HOURS * 3600 * 1000);
+  if (start >= end) return 0;
+  const stepMs = 5 * 60 * 1000;
+  let minutes = 0;
+  for (let t = start.getTime(); t <= end.getTime(); t += stepMs) {
+    const pos = altAz(target.raDeg, target.decDeg, new Date(t), LBT.latDeg, LBT.lonDeg);
+    if (!Number.isFinite(pos.alt) || pos.alt < altLimitDeg) break;
+    minutes += 5;
+  }
+  return minutes / 60;
+}
+
+function moonWarningClass(target) {
+  const risk = moonRisk(target);
+  if (risk.level === "bad") return "bad";
+  if (risk.level === "warn") return "warn";
+  const m = metricsCache.get(target.id) || {};
+  if (Number.isFinite(m.moonSep) && Number.isFinite(m.moonIllum) && m.moonAlt > 0 && m.moonIllum > 0.35 && m.moonSep < 90) return "soft";
+  return "";
+}
+
+function skyWarningClass(m) {
+  if (!Number.isFinite(m.skyMag)) return "";
+  if (m.skyMag < 19.5) return "bad";
+  if (m.skyMag < 20.5) return "warn";
+  if (m.skyMag < 21.2) return "soft";
+  return "";
+}
+
+function skyCellTitle(m) {
+  if (!Number.isFinite(m.skyMag)) return "Sky brightness unavailable";
+  return `Estimated V sky ${fmt(m.skyMag, 2)} mag/arcsec^2; ${fmt(m.skyNL, 0)} nL`;
 }
 
 function cycleStatus(id) {
@@ -761,6 +848,7 @@ function renderSelected() {
     ["Alt / Airmass", `${fmt(m.alt)} deg / ${fmt(m.airmass, 2)}`],
     ["HA", `${fmt(m.haHours, 2)} hr`],
     ["Moon sep.", `${fmt(m.moonSep, 0)} deg`],
+    ["Sky V", Number.isFinite(m.skyMag) ? `${fmt(m.skyMag, 1)} mag/arcsec2` : ""],
     ["Visit", target.visitHours ? `${fmt(Number(target.visitHours), 2)} hr` : ""],
     ["Source", target.source || ""]
   ].map(([k, v]) => `<div><b>${k}</b><span>${escapeHtml(String(v || ""))}</span></div>`).join("");
@@ -796,6 +884,8 @@ function renderDiagnostics() {
     ["Moon sep.", `${fmt(m.moonSep, 1)} deg`],
     ["Moon illum.", `${fmt((m.moonIllum ?? NaN) * 100, 0)}%`],
     ["Moon alt", `${fmt(m.moonAlt, 1)} deg`],
+    ["Sky bright.", Number.isFinite(m.skyMag) ? `${fmt(m.skyMag, 2)} mag/arcsec2` : ""],
+    ["Sky nL", Number.isFinite(m.skyNL) ? fmt(m.skyNL, 0) : ""],
     ["Parallactic PA", `${fmt(pa, 1)} deg`],
     ["Readme", readme ? (readme.projectId || readme.filename) : "not matched"],
     ["Formulae", "GMST sidereal, Kasten-Young airmass, elongation Moon phase"]
@@ -828,6 +918,15 @@ function targetWarnings(target, includeReadme = false) {
       label: moon.level === "bad" ? "Moon" : "moon",
       detail: `Moon: sep ${fmt(m.moonSep, 0)} deg, illum ${fmt(m.moonIllum * 100, 0)}%, alt ${fmt(m.moonAlt, 0)} deg`,
       level: moon.level
+    });
+  }
+  const skyLevel = skyWarningClass(m);
+  if (skyLevel === "bad" || skyLevel === "warn") {
+    warnings.push({
+      code: "sky",
+      label: skyLevel === "bad" ? "sky" : "Sky",
+      detail: `Sky: ${fmt(m.skyMag, 1)} V mag/arcsec2, ${fmt(m.skyNL, 0)} nL`,
+      level: skyLevel
     });
   }
   if (includeReadme && !findReadmeForTarget(target)) {

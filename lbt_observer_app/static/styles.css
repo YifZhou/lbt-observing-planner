@@ -634,6 +634,7 @@ th[data-sort="alt"],
 th[data-sort="airmass"],
 th[data-sort="haHours"],
 th[data-sort="moonSep"],
+th[data-sort="skyMag"],
 th[data-sort="visitHours"] {
   text-align: right;
 }
@@ -673,13 +674,35 @@ tbody tr.dropTarget {
 .moonAngleCell {
   --moon-fill: 0%;
   --moon-color: rgba(242, 184, 75, 0.2);
-  background:
-    linear-gradient(90deg, var(--moon-color) 0 var(--moon-fill), transparent var(--moon-fill) 100%);
 }
 
-.moonAngleCell span {
+.warningCell {
+  --warn-bg: transparent;
+  background:
+    linear-gradient(90deg, var(--moon-color, transparent) 0 var(--moon-fill, 0%), transparent var(--moon-fill, 0%) 100%),
+    var(--warn-bg);
+}
+
+.warningCell.soft {
+  --warn-bg: rgba(244, 174, 190, 0.18);
+}
+
+.warningCell.warn {
+  --warn-bg: rgba(255, 199, 0, 0.34);
+}
+
+.warningCell.bad {
+  --warn-bg: rgba(255, 102, 121, 0.48);
+}
+
+.moonAngleCell span,
+.warningCell {
   position: relative;
   z-index: 1;
+}
+
+.flagsCell {
+  min-width: 90px;
 }
 
 .statusCycle {
