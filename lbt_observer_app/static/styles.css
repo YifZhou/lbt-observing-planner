@@ -592,6 +592,15 @@ th.activeSort::after {
   font-size: 10px;
 }
 
+th[data-sort="priority"],
+th[data-sort="alt"],
+th[data-sort="airmass"],
+th[data-sort="haHours"],
+th[data-sort="moonSep"],
+th[data-sort="visitHours"] {
+  text-align: right;
+}
+
 tbody tr {
   cursor: pointer;
 }
