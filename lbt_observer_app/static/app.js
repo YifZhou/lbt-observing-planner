@@ -23,14 +23,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   [
     "dateInput", "timeInput", "timeSlider", "timeMinusBtn", "timePlusBtn", "lbtLocalTime", "zoneInput", "nowBtn", "saveBtn", "rebuildBtn",
     "instrumentTabs", "searchInput", "statusFilter", "flagFilter", "targetLimit", "upOnly", "hideDone",
-    "nightStats", "summaryCards", "altCanvas", "skyCanvas", "targetTable",
+    "nightStats", "summaryCards", "altCanvas", "altAzCanvas", "skyCanvas", "targetTable",
     "targetCount", "plotTargetLabel", "selectedTitle", "selectedMeta", "warningBadges", "diagnosticsGrid",
     "queueBtn", "notesBox", "sequenceList", "clearSequenceBtn",
     "readmeSelect", "readmeSummary", "readmeText", "stateStamp",
     "clearFiltersBtn", "exportStatusBtn", "fileInput", "importBtn",
     "scrapeBtn", "scrapeLog", "targetsViewBtn", "atmViewBtn", "readmesViewBtn", "plannerView",
     "atmDispView", "readmesWorkspaceView", "atmTargetLabel", "atmStats",
-    "atmCanvas", "atmSlitAngle", "atmSlitSlider", "atmSlitSliderValue", "atmGuideWave", "atmBlueWave",
+    "atmCanvas", "atmAltPaCanvas", "atmDispTimeCanvas", "atmLossCanvas",
+    "atmSlitAngle", "atmSlitSlider", "atmSlitSliderValue", "atmGuideWave", "atmBlueWave",
     "atmRedWave", "atmSeeing", "atmSlitWidth", "readmeWorkspaceTitle",
     "readmeWorkspaceMeta", "readmeWorkspaceText", "readmeNotesBox",
     "readmeIndexPanel", "readmeIndexCount", "readmeIndexList",
@@ -413,11 +414,12 @@ function renderWorkspace() {
   els.targetsViewBtn.classList.toggle("active", view === "planner");
   els.atmViewBtn.classList.toggle("active", view === "atmdisp");
   els.readmesViewBtn.classList.toggle("active", readmesActive);
+  document.querySelector(".detail")?.classList.toggle("hidden", view === "atmdisp");
   els.readmeIndexPanel.classList.toggle("hidden", !readmesActive);
-  els.targetDetailPanel.classList.toggle("hidden", readmesActive);
-  els.diagnosticsPanel.classList.toggle("hidden", readmesActive);
-  els.sequencePanel.classList.toggle("hidden", readmesActive);
-  els.targetReadmePanel.classList.toggle("hidden", readmesActive);
+  els.targetDetailPanel.classList.toggle("hidden", view !== "planner");
+  els.diagnosticsPanel.classList.toggle("hidden", view !== "planner");
+  els.sequencePanel.classList.toggle("hidden", view !== "planner");
+  els.targetReadmePanel.classList.toggle("hidden", view !== "planner");
 }
 
 function renderAndSave() {
@@ -661,7 +663,7 @@ function renderTable() {
       <td class="numericCell">${fmt(m.alt)}</td>
       <td class="numericCell">${fmt(m.airmass, 2)}</td>
       <td class="numericCell">${fmt(m.haHours, 2)}</td>
-      <td class="numericCell">${fmt(m.moonSep, 0)}</td>
+      <td class="numericCell moonAngleCell" style="${moonCellStyle(m)}" title="${moonCellTitle(m)}"><span>${fmt(m.moonSep, 0)}</span></td>
       <td class="numericCell">${fmt(Number(target.visitHours), 2)}</td>`;
     tr.addEventListener("click", () => {
       selectedId = target.id;
@@ -699,6 +701,21 @@ function renderTable() {
     });
     tbody.appendChild(tr);
   }
+}
+
+function moonCellStyle(m) {
+  const illum = clamp(Number(m.moonIllum) || 0, 0, 1);
+  const fill = Math.round(illum * 100);
+  const moonUp = Number(m.moonAlt) > 0;
+  const alpha = moonUp ? 0.1 + illum * 0.28 : 0.06 + illum * 0.12;
+  const color = moonUp ? `rgba(242, 184, 75, ${alpha.toFixed(2)})` : `rgba(149, 167, 178, ${alpha.toFixed(2)})`;
+  return `--moon-fill:${fill}%;--moon-color:${color}`;
+}
+
+function moonCellTitle(m) {
+  if (!Number.isFinite(m.moonSep) || !Number.isFinite(m.moonIllum)) return "";
+  const up = Number(m.moonAlt) > 0 ? "up" : "down";
+  return `Moon sep ${fmt(m.moonSep, 1)} deg; illum ${fmt(m.moonIllum * 100, 0)}%; moon ${up}`;
 }
 
 function cycleStatus(id) {
@@ -1108,6 +1125,7 @@ function renderReadmeWorkspace() {
 
 function renderPlots() {
   drawAltitudePlot();
+  drawAltAzPlot();
   drawSkyPlot();
 }
 
@@ -1313,6 +1331,118 @@ function drawAltTrack(ctx, target, start, pad, w, h, color, width, dash) {
   ctx.stroke();
 }
 
+function drawAltAzPlot() {
+  const canvas = els.altAzCanvas;
+  const { ctx, w, h } = setupCanvas(canvas);
+  fillCanvas(ctx, w, h);
+  const pad = { l: 42, r: 14, t: 26, b: 34 };
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  const base = selectedUtc();
+  const start = lbtNightWindowStart(base);
+  const queued = state.sequence.map(getTarget).filter(Boolean);
+  const targets = uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
+  const selected = getTarget(selectedId);
+  if (selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
+
+  ctx.strokeStyle = "#273443";
+  ctx.fillStyle = "#91a1aa";
+  ctx.font = "12px system-ui";
+  [0, 30, 60, 90].forEach((alt) => {
+    const y = altAzY(alt, pad, h);
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(w - pad.r, y);
+    ctx.stroke();
+    ctx.fillText(String(alt), 8, y + 4);
+  });
+  [0, 90, 180, 270, 360].forEach((az) => {
+    const x = altAzX(az, pad, w);
+    ctx.beginPath();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, h - pad.b);
+    ctx.stroke();
+    ctx.fillText(["N", "E", "S", "W", "N"][az / 90], x - 5, h - 12);
+  });
+  ctx.strokeStyle = "rgba(242,184,75,0.78)";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(pad.l, altAzY(30, pad, h));
+  ctx.lineTo(w - pad.r, altAzY(30, pad, h));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  targets.forEach((target) => {
+    if (target.raDeg == null || target.decDeg == null) return;
+    const isSelected = target.id === selectedId;
+    const isQueued = state.sequence.includes(target.id);
+    drawAltAzTrack(ctx, target, start, pad, w, h, priorityColor(target), isSelected ? 3.8 : isQueued ? 2.8 : 1.5, isQueued && !isSelected ? [8, 6] : []);
+    const m = metricsCache.get(target.id) || {};
+    if (Number.isFinite(m.alt) && m.alt > 0) {
+      const x = altAzX(m.az, pad, w);
+      const y = altAzY(m.alt, pad, h);
+      ctx.fillStyle = priorityColor(target);
+      ctx.beginPath();
+      ctx.arc(x, y, isSelected ? 5.5 : isQueued ? 4.5 : 3, 0, Math.PI * 2);
+      ctx.fill();
+      if (isSelected) {
+        ctx.strokeStyle = "rgba(255,255,255,0.45)";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  });
+  ctx.strokeStyle = "#edf4f7";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pad.l, pad.t, plotW, plotH);
+  ctx.fillStyle = "#91a1aa";
+  ctx.font = "12px system-ui";
+  ctx.fillText("Azimuth", pad.l + plotW / 2 - 22, h - 2);
+  ctx.save();
+  ctx.translate(12, pad.t + plotH / 2 + 24);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("Altitude", 0, 0);
+  ctx.restore();
+}
+
+function drawAltAzTrack(ctx, target, start, pad, w, h, color, width, dash) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  const samples = ALT_PLOT_HOURS * 6;
+  let penDown = false;
+  for (let i = 0; i <= samples; i++) {
+    const d = new Date(start.getTime() + i * 10 * 60 * 1000);
+    const pos = altAz(target.raDeg, target.decDeg, d, LBT.latDeg, LBT.lonDeg);
+    if (pos.alt <= 0) {
+      penDown = false;
+      continue;
+    }
+    const x = altAzX(pos.az, pad, w);
+    const y = altAzY(pos.alt, pad, h);
+    if (!penDown) {
+      ctx.moveTo(x, y);
+      penDown = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function altAzX(azDeg, pad, w) {
+  return pad.l + mod(azDeg, 360) / 360 * (w - pad.l - pad.r);
+}
+
+function altAzY(altDeg, pad, h) {
+  return pad.t + (1 - clamp(altDeg, 0, 90) / 90) * (h - pad.t - pad.b);
+}
+
 function uniqueTargets(targets) {
   const out = [];
   const seen = new Set();
@@ -1347,7 +1477,7 @@ function drawSkyPlot() {
   ctx.setLineDash([]);
   ctx.fillStyle = "#91a1aa";
   ctx.font = "12px system-ui";
-  [["N", 0, -1], ["E", 1, 0], ["S", 0, 1], ["W", -1, 0]].forEach(([lab, dx, dy]) => {
+  [["N", 0, -1], ["E", -1, 0], ["S", 0, 1], ["W", 1, 0]].forEach(([lab, dx, dy]) => {
     ctx.fillText(lab, cx + dx * (r + 10) - 4, cy + dy * (r + 14) + 4);
   });
   const skyPoint = (target) => {
@@ -1355,7 +1485,7 @@ function drawSkyPlot() {
     if (!Number.isFinite(m.alt) || m.alt <= 0) return null;
     const rr = r * (1 - m.alt / 90);
     const theta = rad(m.az);
-    return { x: cx + rr * Math.sin(theta), y: cy - rr * Math.cos(theta), target };
+    return { x: cx - rr * Math.sin(theta), y: cy - rr * Math.cos(theta), target };
   };
   const sequencePoints = state.sequence.map(getTarget).filter(Boolean).map(skyPoint).filter(Boolean);
   if (sequencePoints.length > 1) {
@@ -1373,7 +1503,7 @@ function drawSkyPlot() {
     if (!Number.isFinite(m.alt) || m.alt <= 0) return;
     const rr = r * (1 - m.alt / 90);
     const theta = rad(m.az);
-    const x = cx + rr * Math.sin(theta);
+    const x = cx - rr * Math.sin(theta);
     const y = cy - rr * Math.cos(theta);
     const isSelected = target.id === selectedId;
     const isQueued = state.sequence.includes(target.id);
@@ -1451,7 +1581,10 @@ function renderAtmDisp() {
   if (!target || target.raDeg == null || target.decDeg == null) {
     els.atmTargetLabel.textContent = "Select a target with RA/Dec";
     els.atmStats.innerHTML = "";
+    drawAtmAltPaCanvas(null);
+    drawAtmDispTimeCanvas(null);
     drawAtmCanvas(null);
+    drawAtmLossCanvas(null);
     return;
   }
   const date = selectedUtc();
@@ -1478,7 +1611,61 @@ function renderAtmDisp() {
     [`${red.toFixed(2)}-${guide.toFixed(2)} micron`, `${fmt(redOffset, 2)} arcsec`],
     ["Perpendicular spread", `${fmt(slitLossRisk, 2)} arcsec`]
   ].map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join("");
-  drawAtmCanvas({ pa, slit, blueOffset, redOffset, guide, blue, red, target, pos, seeing, slitWidth, offset });
+  const model = { pa, slit, blueOffset, redOffset, guide, blue, red, target, pos, seeing, slitWidth, offset };
+  drawAtmAltPaCanvas(model);
+  drawAtmDispTimeCanvas(model);
+  drawAtmCanvas(model);
+  drawAtmLossCanvas(model);
+}
+
+function drawAtmAltPaCanvas(model) {
+  const canvas = els.atmAltPaCanvas;
+  const { ctx, w, h } = setupCanvas(canvas);
+  fillCanvas(ctx, w, h);
+  const pad = { l: 46, r: 44, t: 34, b: 34 };
+  drawAtmFrame(ctx, pad, w, h, "Altitude & parallactic angle vs UT");
+  if (!model) return;
+  const rows = atmTimeRows(model.target);
+  const start = lbtNightWindowStart(selectedUtc());
+  const xFor = (date) => pad.l + (date - start) / (ALT_PLOT_HOURS * 3600 * 1000) * (w - pad.l - pad.r);
+  const altY = (alt) => pad.t + (1 - clamp(alt, 0, 90) / 90) * (h - pad.t - pad.b);
+  const paY = (pa) => pad.t + (1 - mod(pa, 360) / 360) * (h - pad.t - pad.b);
+  drawSimpleSeries(ctx, rows, (r) => xFor(r.date), (r) => altY(r.alt), "#66d17a", 2.5, []);
+  drawSimpleSeries(ctx, rows, (r) => xFor(r.date), (r) => paY(r.pa), "#f2b84b", 2.2, [9, 6]);
+  drawSelectedTimeMarker(ctx, pad, w, h, start);
+  ctx.fillStyle = "#66d17a";
+  ctx.fillText("alt", pad.l + 10, pad.t + 18);
+  ctx.fillStyle = "#f2b84b";
+  ctx.fillText("parallactic PA", pad.l + 48, pad.t + 18);
+  ctx.fillStyle = "#91a1aa";
+  [0, 30, 60, 90].forEach((v) => ctx.fillText(String(v), 12, altY(v) + 4));
+  [0, 180, 360].forEach((v) => ctx.fillText(String(v), w - pad.r + 8, paY(v) + 4));
+  drawAtmTimeTicks(ctx, pad, w, h, start);
+}
+
+function drawAtmDispTimeCanvas(model) {
+  const canvas = els.atmDispTimeCanvas;
+  const { ctx, w, h } = setupCanvas(canvas);
+  fillCanvas(ctx, w, h);
+  const pad = { l: 50, r: 18, t: 34, b: 34 };
+  drawAtmFrame(ctx, pad, w, h, "Dispersion vs UT");
+  if (!model) return;
+  const rows = atmTimeRows(model.target);
+  const start = lbtNightWindowStart(selectedUtc());
+  const waves = atmWaveSet(model);
+  const maxDisp = Math.max(0.5, ...rows.flatMap((row) => waves.map((wave) => Math.abs(differentialRefractionArcsec(wave, model.guide, clamp(90 - row.alt, 0, 88))))));
+  const yMax = Math.min(12, Math.max(1, Math.ceil(maxDisp * 1.2)));
+  const xFor = (date) => pad.l + (date - start) / (ALT_PLOT_HOURS * 3600 * 1000) * (w - pad.l - pad.r);
+  const yFor = (arcsec) => pad.t + (1 - clamp(arcsec, 0, yMax) / yMax) * (h - pad.t - pad.b);
+  waves.forEach((wave, idx) => {
+    drawSimpleSeries(ctx, rows, (r) => xFor(r.date), (r) => yFor(Math.abs(differentialRefractionArcsec(wave, model.guide, clamp(90 - r.alt, 0, 88)))), waveColor(idx), 2, idx % 2 ? [8, 5] : []);
+    ctx.fillStyle = waveColor(idx);
+    ctx.fillText(`${wave.toFixed(2)}`, pad.l + 10 + idx * 46, pad.t + 18);
+  });
+  drawSelectedTimeMarker(ctx, pad, w, h, start);
+  ctx.fillStyle = "#91a1aa";
+  [0, yMax / 2, yMax].forEach((v) => ctx.fillText(fmt(v, 1), 10, yFor(v) + 4));
+  drawAtmTimeTicks(ctx, pad, w, h, start);
 }
 
 function drawAtmCanvas(model) {
@@ -1645,6 +1832,153 @@ function drawDispersionChart(ctx, model, x0, y0, width, height) {
   [-5, -2.5, 0, 2.5, 5].forEach((val) => {
     if (Math.abs(val) <= yMax) ctx.fillText(String(val), x0 - 24, yFor(val) + 4);
   });
+}
+
+function drawAtmLossCanvas(model) {
+  const canvas = els.atmLossCanvas;
+  const { ctx, w, h } = setupCanvas(canvas);
+  fillCanvas(ctx, w, h);
+  const pad = { l: 48, r: 18, t: 34, b: 38 };
+  drawAtmFrame(ctx, pad, w, h, "Slit loss");
+  if (!model) return;
+  const slitDelta = rad(wrap180(model.slit - model.pa));
+  const z = clamp(90 - model.pos.alt, 0, 88);
+  const rows = [];
+  for (let i = 0; i <= 100; i++) {
+    const wave = 0.32 + i * (1.08 - 0.32) / 100;
+    const d = differentialRefractionArcsec(wave, model.guide, z);
+    const offset = Math.abs(d * Math.sin(slitDelta));
+    rows.push({ wave, fraction: slitThroughputFraction(offset, model.seeing, model.slitWidth) });
+  }
+  const xFor = (wave) => pad.l + (wave - 0.32) / (1.08 - 0.32) * (w - pad.l - pad.r);
+  const yFor = (frac) => pad.t + (1 - clamp(frac, 0, 1)) * (h - pad.t - pad.b);
+  ctx.fillStyle = "rgba(236,106,93,0.12)";
+  ctx.fillRect(pad.l, yFor(0.8), w - pad.l - pad.r, h - pad.b - yFor(0.8));
+  drawSimpleSeries(ctx, rows, (r) => xFor(r.wave), (r) => yFor(r.fraction), "#66d17a", 3, []);
+  const guideFrac = slitThroughputFraction(0, model.seeing, model.slitWidth);
+  ctx.strokeStyle = "rgba(242,184,75,0.78)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(pad.l, yFor(guideFrac));
+  ctx.lineTo(w - pad.r, yFor(guideFrac));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#91a1aa";
+  [0, 0.5, 1].forEach((v) => ctx.fillText(v.toFixed(1), 12, yFor(v) + 4));
+  [0.35, 0.5, 0.62, 0.8, 1.0].forEach((wave) => ctx.fillText(wave.toFixed(2), xFor(wave) - 12, h - 12));
+  ctx.fillText("wavelength (micron)", pad.l + (w - pad.l - pad.r) / 2 - 56, h - 2);
+}
+
+function drawAtmFrame(ctx, pad, w, h, title) {
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  ctx.strokeStyle = "#273443";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + i / 4 * plotH;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(w - pad.r, y);
+    ctx.stroke();
+  }
+  for (let i = 0; i <= 4; i++) {
+    const x = pad.l + i / 4 * plotW;
+    ctx.beginPath();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, h - pad.b);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "#edf4f7";
+  ctx.strokeRect(pad.l, pad.t, plotW, plotH);
+  ctx.fillStyle = "#edf4f7";
+  ctx.font = "14px system-ui";
+  ctx.fillText(title, pad.l, 20);
+  ctx.font = "12px system-ui";
+}
+
+function drawSimpleSeries(ctx, rows, xFor, yFor, color, width, dash) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  let started = false;
+  rows.forEach((row) => {
+    const x = xFor(row);
+    const y = yFor(row);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      started = false;
+      return;
+    }
+    if (!started) {
+      ctx.moveTo(x, y);
+      started = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function atmTimeRows(target) {
+  const start = lbtNightWindowStart(selectedUtc());
+  const rows = [];
+  for (let i = 0; i <= ALT_PLOT_HOURS * 4; i++) {
+    const date = new Date(start.getTime() + i * 15 * 60 * 1000);
+    const pos = altAz(target.raDeg, target.decDeg, date, LBT.latDeg, LBT.lonDeg);
+    rows.push({ date, alt: pos.alt, pa: parallacticAngle(target.raDeg, target.decDeg, date), airmass: pos.airmass });
+  }
+  return rows;
+}
+
+function drawSelectedTimeMarker(ctx, pad, w, h, start) {
+  const x = pad.l + (selectedUtc() - start) / (ALT_PLOT_HOURS * 3600 * 1000) * (w - pad.l - pad.r);
+  ctx.strokeStyle = "rgba(255,255,255,0.65)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(x, pad.t);
+  ctx.lineTo(x, h - pad.b);
+  ctx.stroke();
+}
+
+function drawAtmTimeTicks(ctx, pad, w, h, start) {
+  ctx.fillStyle = "#91a1aa";
+  ctx.font = "12px system-ui";
+  for (let step = 0; step <= ALT_PLOT_HOURS; step += 2) {
+    const date = new Date(start.getTime() + step * 3600 * 1000);
+    const label = pad2(date.getUTCHours());
+    const x = pad.l + step / ALT_PLOT_HOURS * (w - pad.l - pad.r);
+    ctx.fillText(label, x - 7, h - 12);
+  }
+  ctx.fillText("UT hour", pad.l + (w - pad.l - pad.r) / 2 - 18, h - 2);
+}
+
+function atmWaveSet(model) {
+  const waves = [model.blue, 0.45, model.guide, 0.8, model.red]
+    .filter((v) => Number.isFinite(v) && v >= 0.32 && v <= 1.1)
+    .sort((a, b) => a - b);
+  return [...new Set(waves.map((v) => Number(v.toFixed(2))))];
+}
+
+function waveColor(idx) {
+  return ["#ec6a5d", "#f2b84b", "#66d17a", "#3dc7b5", "#78aef7", "#d78df0"][idx % 6];
+}
+
+function slitThroughputFraction(offsetArcsec, seeingFwhm, slitWidth) {
+  const sigma = Math.max(0.05, seeingFwhm / 2.35482);
+  const half = Math.max(0.05, slitWidth / 2);
+  const root2 = Math.sqrt(2) * sigma;
+  return clamp(0.5 * (erfApprox((half - offsetArcsec) / root2) - erfApprox((-half - offsetArcsec) / root2)), 0, 1);
+}
+
+function erfApprox(x) {
+  const sign = x < 0 ? -1 : 1;
+  const a = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * a);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-a * a);
+  return sign * y;
 }
 
 function plotSeries(ctx, rows, xFor, yFor, key, color, width, dash) {

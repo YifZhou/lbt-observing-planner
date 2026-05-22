@@ -103,6 +103,13 @@
             </div>
             <canvas id="altCanvas" width="1280" height="420"></canvas>
           </div>
+          <div class="plotPanel altAzPanel">
+            <div class="panelHeader">
+              <h2>Alt-Az</h2>
+              <span>tracks</span>
+            </div>
+            <canvas id="altAzCanvas" width="520" height="520"></canvas>
+          </div>
           <div class="plotPanel skyPanel">
             <div class="panelHeader">
               <h2>Sky</h2>
@@ -198,7 +205,12 @@
                 <input id="atmSlitSlider" type="range" min="0" max="360" step="1" value="0">
                 <strong id="atmSlitSliderValue">0 deg</strong>
               </label>
-              <canvas id="atmCanvas" width="760" height="420"></canvas>
+              <div class="atmPlotGrid">
+                <canvas id="atmAltPaCanvas" width="760" height="320"></canvas>
+                <canvas id="atmDispTimeCanvas" width="760" height="320"></canvas>
+                <canvas id="atmCanvas" width="760" height="420"></canvas>
+                <canvas id="atmLossCanvas" width="760" height="320"></canvas>
+              </div>
             </div>
           </div>
         </section>

@@ -279,7 +279,7 @@ input[type="range"] {
 .shell {
   height: calc(100vh - 74px);
   display: grid;
-  grid-template-columns: 280px minmax(680px, 1fr) 400px;
+  grid-template-columns: 280px minmax(980px, 1fr);
   gap: 12px;
   padding: 12px;
   overflow: hidden;
@@ -300,10 +300,16 @@ input[type="range"] {
 }
 
 .mainArea {
-  display: contents;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(680px, 1fr) 400px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
 }
 
 .workbench {
+  display: contents;
   min-height: 0;
 }
 
@@ -316,7 +322,37 @@ input[type="range"] {
 }
 
 #plannerView {
+  display: contents;
   grid-template-rows: auto minmax(320px, 1fr);
+}
+
+#plannerView .plotGrid {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+#plannerView .targetPanel {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.detail {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+#atmDispView {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  min-height: 0;
+  overflow: auto;
+}
+
+#readmesWorkspaceView {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .workspaceView.hidden,
@@ -507,7 +543,7 @@ input[type="range"] {
 
 .plotGrid {
   display: grid;
-  grid-template-columns: minmax(560px, 2fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(520px, 2fr) minmax(240px, 1fr) minmax(240px, 1fr);
   gap: 12px;
   align-items: stretch;
 }
@@ -524,7 +560,8 @@ canvas {
   height: 330px;
 }
 
-.skyPanel canvas {
+.skyPanel canvas,
+.altAzPanel canvas {
   aspect-ratio: 1 / 1;
   height: min(330px, 100%);
   max-height: 330px;
@@ -631,6 +668,18 @@ tbody tr.dropTarget {
 
 .numericCell {
   text-align: right;
+}
+
+.moonAngleCell {
+  --moon-fill: 0%;
+  --moon-color: rgba(242, 184, 75, 0.2);
+  background:
+    linear-gradient(90deg, var(--moon-color) 0 var(--moon-fill), transparent var(--moon-fill) 100%);
+}
+
+.moonAngleCell span {
+  position: relative;
+  z-index: 1;
 }
 
 .statusCycle {
@@ -903,6 +952,12 @@ tbody tr.dropTarget {
   min-width: 0;
 }
 
+.atmPlotGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 .atmStats {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));
@@ -972,8 +1027,25 @@ tbody tr.dropTarget {
   min-height: 0;
 }
 
-#atmCanvas {
+#atmCanvas,
+#atmAltPaCanvas,
+#atmDispTimeCanvas,
+#atmLossCanvas {
   height: 520px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #081017;
+}
+
+#atmCanvas,
+#atmLossCanvas {
+  grid-column: 1 / -1;
+}
+
+#atmAltPaCanvas,
+#atmDispTimeCanvas,
+#atmLossCanvas {
+  height: 300px;
 }
 
 @media (max-width: 1180px) {
@@ -994,13 +1066,29 @@ tbody tr.dropTarget {
     overflow: visible;
   }
 
+  .mainArea {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
   .detail {
     display: flex;
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .plotGrid,
   .atmLayout,
+  .atmPlotGrid,
   .metrics {
     grid-template-columns: 1fr;
+  }
+
+  #plannerView .plotGrid,
+  #plannerView .targetPanel,
+  #atmDispView,
+  #readmesWorkspaceView {
+    grid-column: 1;
+    grid-row: auto;
   }
 }
