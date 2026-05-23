@@ -1920,8 +1920,8 @@ function drawAtmCanvas(model) {
       color: atmWaveColor(idx)
     };
   });
-  const xFor = (arcsec) => pad.l + (clamp(arcsec, -3, 3) + 3) / 6 * (w - pad.l - pad.r);
-  const yFor = (arcsec) => pad.t + (1 - (clamp(arcsec, -3, 3) + 3) / 6) * (h - pad.t - pad.b);
+  const xFor = (arcsec) => pad.l + (arcsec + 3) / 6 * (w - pad.l - pad.r);
+  const yFor = (arcsec) => pad.t + (1 - (arcsec + 3) / 6) * (h - pad.t - pad.b);
   ctx.save();
   ctx.beginPath();
   ctx.rect(pad.l, pad.t, w - pad.l - pad.r, h - pad.t - pad.b);
