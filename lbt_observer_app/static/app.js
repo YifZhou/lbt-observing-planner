@@ -18,6 +18,10 @@ const ALT_PLOT_HOURS = 14;
 const ATM_DISPLAY_LIMIT_ARCSEC = 3;
 const ATM_WAVES_MICRON = [0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95];
 const ATM_SEEING_WAVES_MICRON = [0.35, 0.55, 0.75, 0.95];
+const ATM_PLOT_BG = "#0b1118";
+const ATM_GRID = "rgba(123,145,156,0.28)";
+const ATM_BORDER = "rgba(102,209,122,0.45)";
+const ATM_AXIS_TEXT = "#bac8cf";
 const LBT_ELEVATION_M = 3269;
 const ATM_TEMP_C = 2;
 
@@ -1850,7 +1854,7 @@ function drawAtmAltPaCanvas(model) {
   const canvas = els.atmAltPaCanvas;
   const { ctx, w, h } = setupCanvas(canvas);
   const pad = { l: 48, r: 46, t: 20, b: 38 };
-  drawAtmFrame(ctx, pad, w, h, "#cfe8f3");
+  drawAtmFrame(ctx, pad, w, h);
   if (!model) return;
   const rows = atmTimeRows(model.target);
   const start = lbtNightWindowStart(selectedUtc());
@@ -1861,15 +1865,15 @@ function drawAtmAltPaCanvas(model) {
   drawSimpleSeries(ctx, rows, (r) => xFor(r.date), (r) => paY(r.pa), "#0070c0", 2, []);
   drawSimpleSeries(ctx, rows, (r) => xFor(r.date), (r) => paY(r.pa + 180), "#0070c0", 1.6, [7, 5]);
   drawSelectedTimeMarker(ctx, pad, w, h, start);
-  ctx.fillStyle = "#2f3d45";
+  ctx.fillStyle = ATM_AXIS_TEXT;
   ctx.font = "12px system-ui";
   [0, 30, 60, 90].forEach((v) => ctx.fillText(String(v), 12, altY(v) + 4));
   [0, 180].forEach((v) => {
     const y = clamp(paY(v) + 4, pad.t + 10, h - pad.b - 4);
     ctx.fillText(String(v), w - pad.r + 8, y);
   });
-  drawRotatedAtmLabel(ctx, "Altitude (deg)", 18, pad.t + (h - pad.t - pad.b) / 2 + 34, "#2f3d45");
-  drawRotatedAtmLabel(ctx, "PA (deg)", w - 10, pad.t + (h - pad.t - pad.b) / 2 + 20, "#2f3d45");
+  drawRotatedAtmLabel(ctx, "Altitude (deg)", 18, pad.t + (h - pad.t - pad.b) / 2 + 34, ATM_AXIS_TEXT);
+  drawRotatedAtmLabel(ctx, "PA (deg)", w - 10, pad.t + (h - pad.t - pad.b) / 2 + 20, ATM_AXIS_TEXT);
   drawAtmTimeTicks(ctx, pad, w, h, start);
 }
 
@@ -1877,7 +1881,7 @@ function drawAtmDispTimeCanvas(model) {
   const canvas = els.atmDispTimeCanvas;
   const { ctx, w, h } = setupCanvas(canvas);
   const pad = { l: 54, r: 18, t: 20, b: 38 };
-  drawAtmFrame(ctx, pad, w, h, "#cfe8f3");
+  drawAtmFrame(ctx, pad, w, h);
   if (!model) return;
   const rows = atmTimeRows(model.target);
   const start = lbtNightWindowStart(selectedUtc());
@@ -1896,10 +1900,10 @@ function drawAtmDispTimeCanvas(model) {
   ctx.lineTo(w - pad.r, yFor(0));
   ctx.stroke();
   drawSelectedTimeMarker(ctx, pad, w, h, start);
-  ctx.fillStyle = "#2f3d45";
+  ctx.fillStyle = ATM_AXIS_TEXT;
   ctx.font = "12px system-ui";
   [-3, -2, -1, 0, 1, 2, 3].forEach((v) => ctx.fillText(String(v), 14, yFor(v) + 4));
-  drawRotatedAtmLabel(ctx, "Dispersion (arcsec) relative to Guide wav", 16, pad.t + (h - pad.t - pad.b) / 2 + 104, "#2f3d45");
+  drawRotatedAtmLabel(ctx, "Dispersion (arcsec) relative to Guide wav", 16, pad.t + (h - pad.t - pad.b) / 2 + 104, ATM_AXIS_TEXT);
   drawAtmTimeTicks(ctx, pad, w, h, start);
 }
 
@@ -1907,7 +1911,7 @@ function drawAtmCanvas(model) {
   const canvas = els.atmCanvas;
   const { ctx, w, h } = setupCanvas(canvas);
   const pad = { l: 48, r: 16, t: 22, b: 38 };
-  drawAtmFrame(ctx, pad, w, h, "#efd6ed");
+  drawAtmFrame(ctx, pad, w, h);
   if (!model) return;
   const slitDelta = rad(wrap180(model.slit - model.pa));
   const z = clamp(90 - model.pos.alt, 0, 88);
@@ -1926,7 +1930,7 @@ function drawAtmCanvas(model) {
   ctx.beginPath();
   ctx.rect(pad.l, pad.t, w - pad.l - pad.r, h - pad.t - pad.b);
   ctx.clip();
-  ctx.strokeStyle = "#222";
+  ctx.strokeStyle = "rgba(237,244,247,0.72)";
   ctx.lineWidth = 1.5;
   [-model.slitWidth / 2, 0, model.slitWidth / 2].forEach((off) => {
     ctx.beginPath();
@@ -1948,13 +1952,7 @@ function drawAtmCanvas(model) {
   ATM_SEEING_WAVES_MICRON.forEach((wave) => {
     const idx = ATM_WAVES_MICRON.findIndex((w0) => Math.abs(w0 - wave) < 0.01);
     const row = rows[Math.max(0, idx)];
-    ctx.fillStyle = `${row.color}22`;
-    ctx.strokeStyle = row.color;
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.arc(xFor(row.along), yFor(row.perp), circleRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    drawAtmSeeingCircle(ctx, xFor(row.along), yFor(row.perp), circleRadius, row.color, pad, w, h);
   });
   rows.forEach((row) => {
     ctx.fillStyle = row.color;
@@ -1964,14 +1962,14 @@ function drawAtmCanvas(model) {
   });
   ctx.restore();
   drawAtmOrientationInset(ctx, w - 92, pad.t + 18, model);
-  ctx.fillStyle = "#2f3d45";
+  ctx.fillStyle = ATM_AXIS_TEXT;
   ctx.font = "12px system-ui";
   [-3, -2, -1, 0, 1, 2, 3].forEach((v) => {
     ctx.fillText(String(v), xFor(v) - 4, h - 14);
     ctx.fillText(String(v), 18, yFor(v) + 4);
   });
   ctx.fillText("Along the slit (arcsec)", pad.l + (w - pad.l - pad.r) / 2 - 56, h - 2);
-  drawRotatedAtmLabel(ctx, "Across the slit (arcsec)", 14, pad.t + (h - pad.t - pad.b) / 2 + 62, "#2f3d45");
+  drawRotatedAtmLabel(ctx, "Across the slit (arcsec)", 14, pad.t + (h - pad.t - pad.b) / 2 + 62, ATM_AXIS_TEXT);
 }
 
 function drawDispersionChart(ctx, model, x0, y0, width, height) {
@@ -2071,7 +2069,7 @@ function drawAtmLossCanvas(model) {
   const canvas = els.atmLossCanvas;
   const { ctx, w, h } = setupCanvas(canvas);
   const pad = { l: 48, r: 16, t: 22, b: 38 };
-  drawAtmFrame(ctx, pad, w, h, "#efd6ed");
+  drawAtmFrame(ctx, pad, w, h);
   if (!model) return;
   const slitDelta = rad(wrap180(model.slit - model.pa));
   const z = clamp(90 - model.pos.alt, 0, 88);
@@ -2082,7 +2080,7 @@ function drawAtmLossCanvas(model) {
   });
   const xFor = (angstrom) => pad.l + (angstrom - 3000) / (10000 - 3000) * (w - pad.l - pad.r);
   const yFor = (frac) => pad.t + (1 - clamp(frac, 0, 1)) * (h - pad.t - pad.b);
-  ctx.strokeStyle = "#333";
+  ctx.strokeStyle = "#edf4f7";
   ctx.lineWidth = 2;
   ctx.setLineDash([]);
   ctx.beginPath();
@@ -2093,25 +2091,25 @@ function drawAtmLossCanvas(model) {
   });
   ctx.stroke();
   rows.forEach((row) => {
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = "#edf4f7";
     ctx.beginPath();
     ctx.arc(xFor(row.angstrom), yFor(row.fraction), 3, 0, Math.PI * 2);
     ctx.fill();
   });
-  ctx.fillStyle = "#2f3d45";
+  ctx.fillStyle = ATM_AXIS_TEXT;
   ctx.font = "12px system-ui";
   [0, 0.2, 0.4, 0.6, 0.8, 1].forEach((v) => ctx.fillText(v.toFixed(1), 12, yFor(v) + 4));
   [3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000].forEach((wave) => ctx.fillText(String(wave), xFor(wave) - 14, h - 14));
   ctx.fillText("Wavelength (Ang)", pad.l + (w - pad.l - pad.r) / 2 - 48, h - 2);
-  drawRotatedAtmLabel(ctx, "Fraction entering slit", 14, pad.t + (h - pad.t - pad.b) / 2 + 54, "#2f3d45");
+  drawRotatedAtmLabel(ctx, "Fraction entering slit", 14, pad.t + (h - pad.t - pad.b) / 2 + 54, ATM_AXIS_TEXT);
 }
 
-function drawAtmFrame(ctx, pad, w, h, background = "#cfe8f3") {
+function drawAtmFrame(ctx, pad, w, h, background = ATM_PLOT_BG) {
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = "rgba(185,185,185,0.75)";
+  ctx.strokeStyle = ATM_GRID;
   ctx.lineWidth = 1;
   for (let i = 0; i <= 6; i++) {
     const y = pad.t + i / 6 * plotH;
@@ -2127,9 +2125,9 @@ function drawAtmFrame(ctx, pad, w, h, background = "#cfe8f3") {
     ctx.lineTo(x, h - pad.b);
     ctx.stroke();
   }
-  ctx.strokeStyle = "rgba(255,60,60,0.85)";
+  ctx.strokeStyle = ATM_BORDER;
   ctx.strokeRect(pad.l, pad.t, plotW, plotH);
-  ctx.fillStyle = "#2f3d45";
+  ctx.fillStyle = ATM_AXIS_TEXT;
   ctx.font = "12px system-ui";
 }
 
@@ -2165,6 +2163,39 @@ function drawRotatedAtmLabel(ctx, label, x, y, color) {
   ctx.font = "12px system-ui";
   ctx.fillText(label, 0, 0);
   ctx.restore();
+}
+
+function drawAtmSeeingCircle(ctx, x, y, radius, color, pad, w, h) {
+  const left = pad.l;
+  const right = w - pad.r;
+  const top = pad.t;
+  const bottom = h - pad.b;
+  const overlaps = x + radius >= left && x - radius <= right && y + radius >= top && y - radius <= bottom;
+  if (overlaps) {
+    ctx.fillStyle = `${color}24`;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    return;
+  }
+  const yNear = y >= top - radius && y <= bottom + radius;
+  const xNear = x >= left - radius && x <= right + radius;
+  if (!xNear && !yNear) return;
+  const edgeX = clamp(x, left + radius * 0.55, right - radius * 0.55);
+  const edgeY = clamp(y, top + radius * 0.55, bottom - radius * 0.55);
+  ctx.fillStyle = `${color}14`;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.8;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.arc(edgeX, edgeY, radius * 0.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 function drawAtmOrientationInset(ctx, x, y, model) {
@@ -2208,7 +2239,7 @@ function drawSelectedTimeMarker(ctx, pad, w, h, start) {
 }
 
 function drawAtmTimeTicks(ctx, pad, w, h, start) {
-  ctx.fillStyle = "#2f3d45";
+  ctx.fillStyle = ATM_AXIS_TEXT;
   ctx.font = "12px system-ui";
   for (let step = 0; step <= ALT_PLOT_HOURS; step += 2) {
     const date = new Date(start.getTime() + step * 3600 * 1000);

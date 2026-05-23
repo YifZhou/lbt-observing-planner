@@ -981,8 +981,8 @@ tbody tr.dropTarget {
   min-width: 0;
   margin: 0;
   padding: 6px;
-  border: 1px solid rgba(255, 88, 88, 0.72);
-  border-radius: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   background: #111820;
 }
 
@@ -1069,9 +1069,9 @@ tbody tr.dropTarget {
 #atmDispTimeCanvas,
 #atmLossCanvas {
   height: 300px;
-  border: 1px solid rgba(255, 88, 88, 0.72);
-  border-radius: 2px;
-  background: #cfe8f3;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #0b1118;
 }
 
 #atmCanvas {
