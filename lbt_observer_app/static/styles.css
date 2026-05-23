@@ -470,6 +470,15 @@ input[type="range"] {
   gap: 10px;
 }
 
+.kv .nightEvent {
+  align-items: flex-start;
+}
+
+.kv .nightEvent span {
+  text-align: right;
+  line-height: 1.35;
+}
+
 .kv b,
 .selectedMeta b,
 .metric b {

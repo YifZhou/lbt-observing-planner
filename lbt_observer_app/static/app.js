@@ -453,6 +453,64 @@ function lbtLocalTimeLabel(instant) {
   return `${parts.date} ${parts.time} MST`;
 }
 
+function compactDateTime(date, zone) {
+  if (!date) return "--";
+  const parts = localPartsFromUtc(date, zone);
+  return `${parts.date.slice(5)} ${parts.time}`;
+}
+
+function formatSolarEventTimes(date) {
+  if (!date) return "not found";
+  return [
+    `UTC ${compactDateTime(date, "UTC")}`,
+    `Local ${compactDateTime(date, "BROWSER")}`,
+    `Tucson ${compactDateTime(date, "TUCSON")} MST`
+  ].map(escapeHtml).join("<br>");
+}
+
+function solarEventsForSelectedNight(instant) {
+  const midnight = lbtMidnightForSelectedNight(instant);
+  return {
+    sunset: findSunAltitudeCrossing(new Date(midnight.getTime() - 12 * 3600 * 1000), midnight, -0.833, "down"),
+    sunrise: findSunAltitudeCrossing(midnight, new Date(midnight.getTime() + 12 * 3600 * 1000), -0.833, "up")
+  };
+}
+
+function sunAltitudeAt(date) {
+  const sun = sunPosition(date);
+  return altAz(sun.raDeg, sun.decDeg, date, LBT.latDeg, LBT.lonDeg).alt;
+}
+
+function findSunAltitudeCrossing(start, end, altDeg, direction) {
+  const stepMs = 10 * 60 * 1000;
+  let prevT = start;
+  let prevAlt = sunAltitudeAt(prevT) - altDeg;
+  for (let t = start.getTime() + stepMs; t <= end.getTime(); t += stepMs) {
+    const curT = new Date(t);
+    const curAlt = sunAltitudeAt(curT) - altDeg;
+    const crossed = direction === "down"
+      ? prevAlt >= 0 && curAlt <= 0
+      : prevAlt <= 0 && curAlt >= 0;
+    if (crossed) return refineSunAltitudeCrossing(prevT, curT, altDeg);
+    prevT = curT;
+    prevAlt = curAlt;
+  }
+  return null;
+}
+
+function refineSunAltitudeCrossing(t0, t1, altDeg) {
+  let lo = t0.getTime();
+  let hi = t1.getTime();
+  const a0 = sunAltitudeAt(t0) - altDeg;
+  for (let i = 0; i < 24; i++) {
+    const mid = new Date((lo + hi) / 2);
+    const am = sunAltitudeAt(mid) - altDeg;
+    if ((a0 >= 0 && am >= 0) || (a0 < 0 && am < 0)) lo = mid.getTime();
+    else hi = mid.getTime();
+  }
+  return new Date((lo + hi) / 2);
+}
+
 function computeMetrics() {
   metricsCache = new Map();
   const date = selectedUtc();
@@ -510,12 +568,15 @@ function renderNight() {
   const sunAlt = altAz(sun.raDeg, sun.decDeg, date, LBT.latDeg, LBT.lonDeg).alt;
   const moonAlt = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg).alt;
   const lst = localSiderealTime(date, LBT.lonDeg) / 15;
+  const events = solarEventsForSelectedNight(date);
   els.nightStats.innerHTML = [
     ["UTC", date.toISOString().slice(0, 16).replace("T", " ")],
     ["LST", `${pad2(Math.floor(lst))}:${pad2(Math.floor((lst % 1) * 60))}`],
     ["Sun alt", `${fmt(sunAlt)} deg`],
-    ["Moon", `${fmt(moon.phase * 100, 0)}%, alt ${fmt(moonAlt)} deg`]
-  ].map(([k, v]) => `<div><b>${k}</b><span>${v}</span></div>`).join("");
+    ["Moon", `${fmt(moon.phase * 100, 0)}%, alt ${fmt(moonAlt)} deg`],
+    ["Sunset", formatSolarEventTimes(events.sunset)],
+    ["Sunrise", formatSolarEventTimes(events.sunrise)]
+  ].map(([k, v]) => `<div class="${k === "Sunset" || k === "Sunrise" ? "nightEvent" : ""}"><b>${k}</b><span>${v}</span></div>`).join("");
 }
 
 function instrumentTargets() {
