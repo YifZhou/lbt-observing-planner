@@ -972,31 +972,27 @@ tbody tr.dropTarget {
 
 .atmPlotGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(420px, 3fr) minmax(300px, 2fr);
+  gap: 8px;
   align-items: start;
 }
 
 .atmPlotCard {
   min-width: 0;
   margin: 0;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #0f1720;
-}
-
-.atmPlotCard.wide {
-  grid-column: 1 / -1;
+  padding: 6px;
+  border: 1px solid rgba(255, 88, 88, 0.72);
+  border-radius: 3px;
+  background: #111820;
 }
 
 .atmPlotCard figcaption {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   color: #edf4f7;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0;
-  text-transform: uppercase;
+  text-align: center;
 }
 
 .atmStats {
@@ -1072,20 +1068,20 @@ tbody tr.dropTarget {
 #atmAltPaCanvas,
 #atmDispTimeCanvas,
 #atmLossCanvas {
-  height: 520px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #081017;
+  height: 300px;
+  border: 1px solid rgba(255, 88, 88, 0.72);
+  border-radius: 2px;
+  background: #cfe8f3;
 }
 
 #atmCanvas {
-  height: 460px;
+  height: 300px;
 }
 
 #atmAltPaCanvas,
 #atmDispTimeCanvas,
 #atmLossCanvas {
-  height: 280px;
+  height: 300px;
 }
 
 @media (max-width: 1180px) {
@@ -1119,9 +1115,12 @@ tbody tr.dropTarget {
 
   .plotGrid,
   .atmLayout,
-  .atmPlotGrid,
   .metrics {
     grid-template-columns: 1fr;
+  }
+
+  .atmPlotGrid {
+    grid-template-columns: minmax(420px, 3fr) minmax(300px, 2fr);
   }
 
   #plannerView .plotGrid,
@@ -1130,5 +1129,11 @@ tbody tr.dropTarget {
   #readmesWorkspaceView {
     grid-column: 1;
     grid-row: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .atmPlotGrid {
+    grid-template-columns: 1fr;
   }
 }
