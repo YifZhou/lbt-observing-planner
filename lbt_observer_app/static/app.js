@@ -17,7 +17,6 @@ const mod = (x, n) => ((x % n) + n) % n;
 const ALT_PLOT_HOURS = 14;
 const ATM_DISPLAY_LIMIT_ARCSEC = 3;
 const ATM_WAVES_MICRON = [0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95];
-const ATM_SEEING_WAVES_MICRON = [0.35, 0.55, 0.75, 0.95];
 const ATM_PLOT_BG = "#0b1118";
 const ATM_GRID = "rgba(123,145,156,0.28)";
 const ATM_BORDER = "rgba(102,209,122,0.45)";
@@ -1919,7 +1918,7 @@ function drawAtmCanvas(model) {
     const d = differentialRefractionArcsec(wave, model.guide, z);
     return {
       wave,
-      along: d * Math.cos(slitDelta),
+      along: -d * Math.cos(slitDelta),
       perp: d * Math.sin(slitDelta),
       color: atmWaveColor(idx)
     };
@@ -1949,10 +1948,9 @@ function drawAtmCanvas(model) {
   ctx.stroke();
   const yPixelsPerArcsec = (h - pad.t - pad.b) / 6;
   const circleRadius = Math.max(5, model.seeing * yPixelsPerArcsec / 2);
-  ATM_SEEING_WAVES_MICRON.forEach((wave) => {
-    const idx = ATM_WAVES_MICRON.findIndex((w0) => Math.abs(w0 - wave) < 0.01);
-    const row = rows[Math.max(0, idx)];
-    drawAtmSeeingCircle(ctx, xFor(row.along), yFor(row.perp), circleRadius, row.color, pad, w, h);
+  const visibleLine = clippedPolylinePoints(rows.map((row) => ({ x: xFor(row.along), y: yFor(row.perp) })), pad, w, h);
+  samplePolylineByArcLength(visibleLine, 4).forEach((point, idx) => {
+    drawAtmSeeingCircle(ctx, point.x, point.y, circleRadius, atmSeeingColor(idx));
   });
   rows.forEach((row) => {
     ctx.fillStyle = row.color;
@@ -2165,37 +2163,75 @@ function drawRotatedAtmLabel(ctx, label, x, y, color) {
   ctx.restore();
 }
 
-function drawAtmSeeingCircle(ctx, x, y, radius, color, pad, w, h) {
-  const left = pad.l;
-  const right = w - pad.r;
-  const top = pad.t;
-  const bottom = h - pad.b;
-  const overlaps = x + radius >= left && x - radius <= right && y + radius >= top && y - radius <= bottom;
-  if (overlaps) {
-    ctx.fillStyle = `${color}24`;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    return;
-  }
-  const yNear = y >= top - radius && y <= bottom + radius;
-  const xNear = x >= left - radius && x <= right + radius;
-  if (!xNear && !yNear) return;
-  const edgeX = clamp(x, left + radius * 0.55, right - radius * 0.55);
-  const edgeY = clamp(y, top + radius * 0.55, bottom - radius * 0.55);
-  ctx.fillStyle = `${color}14`;
+function drawAtmSeeingCircle(ctx, x, y, radius, color) {
+  ctx.fillStyle = `${color}24`;
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.8;
-  ctx.setLineDash([5, 4]);
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
   ctx.beginPath();
-  ctx.arc(edgeX, edgeY, radius * 0.8, 0, Math.PI * 2);
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.setLineDash([]);
+}
+
+function clippedPolylinePoints(points, pad, w, h) {
+  const rect = { left: pad.l, right: w - pad.r, top: pad.t, bottom: h - pad.b };
+  const out = [];
+  for (let i = 1; i < points.length; i++) {
+    const segment = clipSegmentToRect(points[i - 1], points[i], rect);
+    if (!segment) continue;
+    const [a, b] = segment;
+    const prev = out[out.length - 1];
+    if (!prev || Math.hypot(prev.x - a.x, prev.y - a.y) > 0.5) out.push(a);
+    out.push(b);
+  }
+  return out;
+}
+
+function clipSegmentToRect(p0, p1, rect) {
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  let t0 = 0;
+  let t1 = 1;
+  const checks = [
+    [-dx, p0.x - rect.left],
+    [dx, rect.right - p0.x],
+    [-dy, p0.y - rect.top],
+    [dy, rect.bottom - p0.y]
+  ];
+  for (const [p, q] of checks) {
+    if (p === 0 && q < 0) return null;
+    if (p === 0) continue;
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t); else t1 = Math.min(t1, t);
+    if (t0 > t1) return null;
+  }
+  return [
+    { x: p0.x + t0 * dx, y: p0.y + t0 * dy },
+    { x: p0.x + t1 * dx, y: p0.y + t1 * dy }
+  ];
+}
+
+function samplePolylineByArcLength(points, count) {
+  if (!points.length) return [];
+  if (points.length === 1 || count <= 1) return [points[0]];
+  const lengths = [0];
+  for (let i = 1; i < points.length; i++) {
+    lengths[i] = lengths[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+  }
+  const total = lengths[lengths.length - 1];
+  if (total <= 0) return Array.from({ length: count }, () => points[0]);
+  return Array.from({ length: count }, (_, idx) => {
+    const target = total * (idx + 0.5) / count;
+    let j = 1;
+    while (j < lengths.length - 1 && lengths[j] < target) j++;
+    const span = Math.max(1e-6, lengths[j] - lengths[j - 1]);
+    const f = (target - lengths[j - 1]) / span;
+    return {
+      x: points[j - 1].x + f * (points[j].x - points[j - 1].x),
+      y: points[j - 1].y + f * (points[j].y - points[j - 1].y)
+    };
+  });
 }
 
 function drawAtmOrientationInset(ctx, x, y, model) {
@@ -2263,6 +2299,10 @@ function waveColor(idx) {
 
 function atmWaveColor(idx) {
   return ["#7030a0", "#3498db", "#00b050", "#d7a211", "#ff3333", "#c00000", "#666666"][idx % 7];
+}
+
+function atmSeeingColor(idx) {
+  return ["#a46eea", "#58a6ff", "#66d17a", "#ff5c5c"][idx % 4];
 }
 
 function slitThroughputFraction(offsetArcsec, seeingFwhm, slitWidth) {
