@@ -1281,6 +1281,7 @@ function drawAltitudePlot() {
       ctx.fillText(target.targetName, lx, y - 8);
     }
   });
+  drawMoonAltitude(ctx, start, base, pad, w, h);
   ctx.setLineDash([]);
   const xNow = pad.l + ((base - start) / (ALT_PLOT_HOURS * 3600 * 1000)) * (w - pad.l - pad.r);
   ctx.strokeStyle = "#ffffff";
@@ -1443,6 +1444,44 @@ function drawAltTrack(ctx, target, start, pad, w, h, color, width, dash) {
   ctx.stroke();
 }
 
+function drawMoonAltitude(ctx, start, base, pad, w, h) {
+  const samples = ALT_PLOT_HOURS * 6;
+  ctx.strokeStyle = "rgba(242,184,75,0.82)";
+  ctx.lineWidth = 2.2;
+  ctx.setLineDash([5, 6]);
+  ctx.beginPath();
+  let penDown = false;
+  for (let i = 0; i <= samples; i++) {
+    const date = new Date(start.getTime() + i * 10 * 60 * 1000);
+    const moon = moonPosition(date);
+    const pos = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
+    if (pos.alt <= 0) {
+      penDown = false;
+      continue;
+    }
+    const x = pad.l + (i / samples) * (w - pad.l - pad.r);
+    const y = pad.t + (1 - clamp(pos.alt, 0, 90) / 90) * (h - pad.t - pad.b);
+    if (!penDown) {
+      ctx.moveTo(x, y);
+      penDown = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const moon = moonPosition(base);
+  const pos = altAz(moon.raDeg, moon.decDeg, base, LBT.latDeg, LBT.lonDeg);
+  if (Number.isFinite(pos.alt) && pos.alt > 0) {
+    const x = pad.l + ((base - start) / (ALT_PLOT_HOURS * 3600 * 1000)) * (w - pad.l - pad.r);
+    const y = pad.t + (1 - clamp(pos.alt, 0, 90) / 90) * (h - pad.t - pad.b);
+    drawMoonGlyph(ctx, x, y, moon.phase, 8);
+    ctx.fillStyle = "#f2b84b";
+    ctx.font = "12px system-ui";
+    ctx.fillText(`Moon ${fmt(moon.phase * 100, 0)}%`, x + 11, y + 4);
+  }
+}
+
 function drawAltAzPlot() {
   const canvas = els.altAzCanvas;
   const { ctx, w, h } = setupCanvas(canvas);
@@ -1507,6 +1546,7 @@ function drawAltAzPlot() {
       }
     }
   });
+  drawMoonAltAz(ctx, start, base, pad, w, h);
   ctx.strokeStyle = "#edf4f7";
   ctx.lineWidth = 1;
   ctx.strokeRect(pad.l, pad.t, plotW, plotH);
@@ -1545,6 +1585,47 @@ function drawAltAzTrack(ctx, target, start, pad, w, h, color, width, dash) {
   }
   ctx.stroke();
   ctx.setLineDash([]);
+}
+
+function drawMoonAltAz(ctx, start, base, pad, w, h) {
+  ctx.strokeStyle = "rgba(242,184,75,0.82)";
+  ctx.lineWidth = 2.2;
+  ctx.setLineDash([5, 6]);
+  ctx.beginPath();
+  const samples = ALT_PLOT_HOURS * 6;
+  let penDown = false;
+  let lastAz = NaN;
+  for (let i = 0; i <= samples; i++) {
+    const date = new Date(start.getTime() + i * 10 * 60 * 1000);
+    const moon = moonPosition(date);
+    const pos = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
+    if (pos.alt <= 0 || (Number.isFinite(lastAz) && Math.abs(pos.az - lastAz) > 180)) {
+      penDown = false;
+      lastAz = pos.az;
+      continue;
+    }
+    const x = altAzX(pos.az, pad, w);
+    const y = altAzY(pos.alt, pad, h);
+    if (!penDown) {
+      ctx.moveTo(x, y);
+      penDown = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+    lastAz = pos.az;
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const moon = moonPosition(base);
+  const pos = altAz(moon.raDeg, moon.decDeg, base, LBT.latDeg, LBT.lonDeg);
+  if (Number.isFinite(pos.alt) && pos.alt > 0) {
+    const x = altAzX(pos.az, pad, w);
+    const y = altAzY(pos.alt, pad, h);
+    drawMoonGlyph(ctx, x, y, moon.phase, 7.5);
+    ctx.fillStyle = "#f2b84b";
+    ctx.font = "12px system-ui";
+    ctx.fillText("Moon", Math.min(x + 9, w - pad.r - 40), y - 8);
+  }
 }
 
 function altAzX(azDeg, pad, w) {
@@ -1631,6 +1712,7 @@ function drawSkyPlot() {
       ctx.stroke();
     }
   });
+  drawMoonSkyMarker(ctx, cx, cy, r);
   sequencePoints.forEach((p, idx) => {
     ctx.fillStyle = "#071014";
     ctx.strokeStyle = priorityColor(p.target);
@@ -1644,6 +1726,38 @@ function drawSkyPlot() {
     const label = String(idx + 1);
     ctx.fillText(label, p.x - ctx.measureText(label).width / 2, p.y + 4);
   });
+}
+
+function drawMoonSkyMarker(ctx, cx, cy, r) {
+  const date = selectedUtc();
+  const moon = moonPosition(date);
+  const pos = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
+  if (!Number.isFinite(pos.alt) || pos.alt <= 0) return;
+  const rr = r * (1 - pos.alt / 90);
+  const theta = rad(pos.az);
+  const x = cx - rr * Math.sin(theta);
+  const y = cy - rr * Math.cos(theta);
+  drawMoonGlyph(ctx, x, y, moon.phase, 8);
+  ctx.fillStyle = "#f2b84b";
+  ctx.font = "11px system-ui";
+  ctx.fillText("Moon", Math.min(x + 10, cx + r - 28), y - 8);
+}
+
+function drawMoonGlyph(ctx, x, y, illum, radius) {
+  ctx.save();
+  ctx.fillStyle = "rgba(242,184,75,0.95)";
+  ctx.strokeStyle = "#071014";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "rgba(7,16,20,0.72)";
+  const shadow = radius * (1 - clamp(illum, 0, 1));
+  ctx.beginPath();
+  ctx.ellipse(x - radius * 0.25, y, shadow, radius * 0.92, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function fillCanvas(ctx, w, h) {
@@ -1735,7 +1849,7 @@ function drawAtmAltPaCanvas(model) {
   const { ctx, w, h } = setupCanvas(canvas);
   fillCanvas(ctx, w, h);
   const pad = { l: 46, r: 44, t: 34, b: 34 };
-  drawAtmFrame(ctx, pad, w, h, "Altitude & parallactic angle vs UT");
+  drawAtmFrame(ctx, pad, w, h);
   if (!model) return;
   const rows = atmTimeRows(model.target);
   const start = lbtNightWindowStart(selectedUtc());
@@ -1760,7 +1874,7 @@ function drawAtmDispTimeCanvas(model) {
   const { ctx, w, h } = setupCanvas(canvas);
   fillCanvas(ctx, w, h);
   const pad = { l: 50, r: 18, t: 34, b: 34 };
-  drawAtmFrame(ctx, pad, w, h, "Dispersion vs UT");
+  drawAtmFrame(ctx, pad, w, h);
   if (!model) return;
   const rows = atmTimeRows(model.target);
   const start = lbtNightWindowStart(selectedUtc());
@@ -1951,7 +2065,7 @@ function drawAtmLossCanvas(model) {
   const { ctx, w, h } = setupCanvas(canvas);
   fillCanvas(ctx, w, h);
   const pad = { l: 48, r: 18, t: 34, b: 38 };
-  drawAtmFrame(ctx, pad, w, h, "Slit loss");
+  drawAtmFrame(ctx, pad, w, h);
   if (!model) return;
   const slitDelta = rad(wrap180(model.slit - model.pa));
   const z = clamp(90 - model.pos.alt, 0, 88);
@@ -1982,7 +2096,7 @@ function drawAtmLossCanvas(model) {
   ctx.fillText("wavelength (micron)", pad.l + (w - pad.l - pad.r) / 2 - 56, h - 2);
 }
 
-function drawAtmFrame(ctx, pad, w, h, title) {
+function drawAtmFrame(ctx, pad, w, h) {
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
   ctx.strokeStyle = "#273443";
@@ -2003,9 +2117,7 @@ function drawAtmFrame(ctx, pad, w, h, title) {
   }
   ctx.strokeStyle = "#edf4f7";
   ctx.strokeRect(pad.l, pad.t, plotW, plotH);
-  ctx.fillStyle = "#edf4f7";
-  ctx.font = "14px system-ui";
-  ctx.fillText(title, pad.l, 20);
+  ctx.fillStyle = "#91a1aa";
   ctx.font = "12px system-ui";
 }
 
