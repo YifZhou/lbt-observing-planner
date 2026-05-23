@@ -635,6 +635,7 @@ th[data-sort="airmass"],
 th[data-sort="haHours"],
 th[data-sort="moonSep"],
 th[data-sort="skyMag"],
+th[data-sort="deltaT"],
 th[data-sort="visitHours"] {
   text-align: right;
 }
@@ -671,16 +672,9 @@ tbody tr.dropTarget {
   text-align: right;
 }
 
-.moonAngleCell {
-  --moon-fill: 0%;
-  --moon-color: rgba(242, 184, 75, 0.2);
-}
-
 .warningCell {
   --warn-bg: transparent;
-  background:
-    linear-gradient(90deg, var(--moon-color, transparent) 0 var(--moon-fill, 0%), transparent var(--moon-fill, 0%) 100%),
-    var(--warn-bg);
+  background: var(--warn-bg);
 }
 
 .warningCell.soft {
@@ -695,7 +689,6 @@ tbody tr.dropTarget {
   --warn-bg: rgba(255, 102, 121, 0.48);
 }
 
-.moonAngleCell span,
 .warningCell {
   position: relative;
   z-index: 1;

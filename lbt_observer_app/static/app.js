@@ -295,7 +295,7 @@ function setSort(key) {
     state.meta.sortDir = state.meta.sortDir === "asc" ? "desc" : "asc";
   } else {
     state.meta.sortKey = key;
-    state.meta.sortDir = ["targetName", "programName", "partner", "status", "priority", "airmass", "visitHours", "raDeg", "decDeg"].includes(key) ? "asc" : "desc";
+    state.meta.sortDir = ["targetName", "programName", "partner", "status", "priority", "airmass", "visitHours", "deltaT", "raDeg", "decDeg"].includes(key) ? "asc" : "desc";
   }
   renderAndSave();
 }
@@ -624,6 +624,7 @@ function skyBrightnessEstimate(m) {
 
 function targetSortValue(t, key) {
   const m = metricsCache.get(t.id) || {};
+  if (key === "deltaT") return targetDeltaTHours(t, m);
   if (key in m) return m[key];
   if (key === "status") return t.status || "todo";
   if (key === "partner") return partnerForTarget(t);
@@ -657,15 +658,13 @@ function renderTable() {
   });
   if (!rows.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="13" class="emptyCell">No targets loaded. Run Update from OSURC, or import scraper output.</td>`;
+    tr.innerHTML = `<td colspan="14" class="emptyCell">No targets loaded. Run Update from OSURC, or import scraper output.</td>`;
     tbody.appendChild(tr);
     return;
   }
   for (const target of rows) {
     const m = metricsCache.get(target.id) || {};
-    const timeLeft = timeLeftAboveAltitude(target, 30);
-    const visitClass = visitWarningClass(target, timeLeft);
-    const visitTitle = visitWarningTitle(target, timeLeft);
+    const deltaT = targetDeltaTHours(target, m);
     const tr = document.createElement("tr");
     tr.className = target.id === selectedId ? "selected" : "";
     tr.draggable = true;
@@ -677,11 +676,12 @@ function renderTable() {
       <td class="coordCell">${escapeHtml(decShort(target))}</td>
       <td>${escapeHtml(target.programName || "")}</td>
       <td class="numericCell"><input class="priorityInput" type="number" step="0.1" value="${target.priority ?? ""}" title="Edit priority"></td>
-      <td class="numericCell warningCell ${visitClass}" title="${visitTitle}">${fmt(Number(target.visitHours), 2)}</td>
+      <td class="numericCell warningCell ${haWarningClass(m)}" title="${haWarningTitle(target, m)}">${fmt(m.haHours, 2)}</td>
+      <td class="numericCell">${fmt(Number(target.visitHours), 2)}</td>
+      <td class="numericCell warningCell ${deltaTWarningClass(target, m, deltaT)}" title="${deltaTTitle(target, m, deltaT)}">${fmt(deltaT, 2)}</td>
       <td class="numericCell warningCell ${altWarningClass(m)}" title="${altWarningTitle(m)}">${fmt(m.alt)}</td>
-      <td class="numericCell">${fmt(m.airmass, 2)}</td>
-      <td class="numericCell">${fmt(m.haHours, 2)}</td>
-      <td class="numericCell warningCell ${moonWarningClass(target)} moonAngleCell" style="${moonCellStyle(m)}" title="${moonCellTitle(m)}"><span>${fmt(m.moonSep, 0)}</span></td>
+      <td class="numericCell warningCell ${airmassWarningClass(m)}" title="${airmassWarningTitle(m)}">${fmt(m.airmass, 2)}</td>
+      <td class="numericCell warningCell ${moonWarningClass(target)}" title="${moonCellTitle(m)}">${fmt(m.moonSep, 0)}</td>
       <td class="numericCell warningCell ${skyWarningClass(m)}" title="${skyCellTitle(m)}">${fmt(m.skyMag, 1)}</td>
       <td class="flagsCell">${warningBadgeHtml(target, "compact")}</td>`;
     tr.addEventListener("click", () => {
@@ -722,15 +722,6 @@ function renderTable() {
   }
 }
 
-function moonCellStyle(m) {
-  const illum = clamp(Number(m.moonIllum) || 0, 0, 1);
-  const fill = Math.round(illum * 100);
-  const moonUp = Number(m.moonAlt) > 0;
-  const alpha = moonUp ? 0.1 + illum * 0.24 : 0.05 + illum * 0.1;
-  const color = moonUp ? `rgba(242, 184, 75, ${alpha.toFixed(2)})` : `rgba(149, 167, 178, ${alpha.toFixed(2)})`;
-  return `--moon-fill:${fill}%;--moon-color:${color}`;
-}
-
 function moonCellTitle(m) {
   if (!Number.isFinite(m.moonSep) || !Number.isFinite(m.moonIllum)) return "";
   const up = Number(m.moonAlt) > 0 ? "up" : "down";
@@ -750,37 +741,53 @@ function altWarningTitle(m) {
   return `Altitude ${fmt(m.alt, 1)} deg; airmass ${fmt(m.airmass, 2)}`;
 }
 
-function visitWarningClass(target, timeLeft) {
-  const visit = Number(target.visitHours);
-  if (!Number.isFinite(visit) || visit <= 0) return "";
-  const left = Number(timeLeft);
-  if (!Number.isFinite(left) || left <= 0) return "bad";
-  if (left < visit) return "bad";
-  if (left < visit * 1.5) return "warn";
-  if (left < visit * 2.5) return "soft";
+function airmassWarningClass(m) {
+  if (!Number.isFinite(m.airmass)) return "";
+  if (m.airmass > 3) return "bad";
+  if (m.airmass > 2) return "warn";
+  if (m.airmass > 1.55) return "soft";
   return "";
 }
 
-function visitWarningTitle(target, timeLeft) {
-  const visit = Number(target.visitHours);
-  const left = Number(timeLeft);
-  if (!Number.isFinite(visit)) return "No visit duration";
-  return `Visit ${fmt(visit, 2)} hr; time left above 30 deg ${fmt(left, 2)} hr`;
+function airmassWarningTitle(m) {
+  if (!Number.isFinite(m.airmass)) return "Airmass unavailable";
+  return `Airmass ${fmt(m.airmass, 2)}`;
 }
 
-function timeLeftAboveAltitude(target, altLimitDeg) {
-  if (target.raDeg == null || target.decDeg == null) return NaN;
-  const start = selectedUtc();
-  const end = new Date(lbtNightWindowStart(start).getTime() + ALT_PLOT_HOURS * 3600 * 1000);
-  if (start >= end) return 0;
-  const stepMs = 5 * 60 * 1000;
-  let minutes = 0;
-  for (let t = start.getTime(); t <= end.getTime(); t += stepMs) {
-    const pos = altAz(target.raDeg, target.decDeg, new Date(t), LBT.latDeg, LBT.lonDeg);
-    if (!Number.isFinite(pos.alt) || pos.alt < altLimitDeg) break;
-    minutes += 5;
-  }
-  return minutes / 60;
+function effectiveHaLimit(target) {
+  const explicit = Number(target.haLimitHours);
+  return Number.isFinite(explicit) && explicit > 0 ? explicit : 2;
+}
+
+function targetDeltaTHours(target, m = metricsCache.get(target.id) || {}) {
+  const visit = Number(target.visitHours) || 0;
+  const limit = effectiveHaLimit(target);
+  if (!Number.isFinite(m.haHours)) return NaN;
+  return limit - m.haHours - visit;
+}
+
+function deltaTWarningClass(target, m, deltaT) {
+  const limit = effectiveHaLimit(target);
+  if (!Number.isFinite(deltaT)) return "";
+  if (m.haHours > limit || deltaT < 0) return "bad";
+  if (m.haHours > 2 || m.haHours < -limit || deltaT < 0.5) return "warn";
+  if (deltaT < 1) return "soft";
+  return "";
+}
+
+function deltaTTitle(target, m, deltaT) {
+  const limit = effectiveHaLimit(target);
+  return `DeltaT = HA limit ${fmt(limit, 2)} - HA ${fmt(m.haHours, 2)} - visit ${fmt(Number(target.visitHours) || 0, 2)} = ${fmt(deltaT, 2)} hr`;
+}
+
+function haWarningClass(m) {
+  if (!Number.isFinite(m.haHours)) return "";
+  if (m.haHours > 2) return "warn";
+  return "";
+}
+
+function haWarningTitle(target, m) {
+  return `HA ${fmt(m.haHours, 2)} hr; warning threshold +2 hr; target HA limit ${fmt(effectiveHaLimit(target), 2)} hr`;
 }
 
 function moonWarningClass(target) {
@@ -837,6 +844,7 @@ function renderSelected() {
     return;
   }
   const m = metricsCache.get(target.id) || {};
+  const deltaT = targetDeltaTHours(target, m);
   els.selectedTitle.textContent = target.targetName;
   els.queueBtn.textContent = state.sequence.includes(target.id) ? "Unqueue" : "Queue";
   els.selectedMeta.innerHTML = [
@@ -847,9 +855,10 @@ function renderSelected() {
     ["RA, Dec", coordLine(target)],
     ["Alt / Airmass", `${fmt(m.alt)} deg / ${fmt(m.airmass, 2)}`],
     ["HA", `${fmt(m.haHours, 2)} hr`],
+    ["Visit", target.visitHours ? `${fmt(Number(target.visitHours), 2)} hr` : ""],
+    ["DeltaT", Number.isFinite(deltaT) ? `${fmt(deltaT, 2)} hr` : ""],
     ["Moon sep.", `${fmt(m.moonSep, 0)} deg`],
     ["Sky V", Number.isFinite(m.skyMag) ? `${fmt(m.skyMag, 1)} mag/arcsec2` : ""],
-    ["Visit", target.visitHours ? `${fmt(Number(target.visitHours), 2)} hr` : ""],
     ["Source", target.source || ""]
   ].map(([k, v]) => `<div><b>${k}</b><span>${escapeHtml(String(v || ""))}</span></div>`).join("");
   els.warningBadges.innerHTML = warningBadgeHtml(target, "full") || `<span class="targetOk">No current flags</span>`;
@@ -867,6 +876,7 @@ function renderDiagnostics() {
   }
   const date = selectedUtc();
   const m = metricsCache.get(target.id) || {};
+  const deltaT = targetDeltaTHours(target, m);
   const lstDeg = localSiderealTime(date, LBT.lonDeg);
   const lstHours = lstDeg / 15;
   const pa = target.raDeg == null || target.decDeg == null ? NaN : parallacticAngle(target.raDeg, target.decDeg, date);
@@ -878,6 +888,7 @@ function renderDiagnostics() {
     ["RA", target.raText || degToHms(target.raDeg)],
     ["Dec", target.decText || degToDms(target.decDeg)],
     ["HA", `${fmt(m.haHours, 3)} hr`],
+    ["DeltaT", Number.isFinite(deltaT) ? `${fmt(deltaT, 3)} hr` : ""],
     ["Altitude", `${fmt(m.alt, 2)} deg`],
     ["Azimuth", `${fmt(m.az, 1)} deg`],
     ["Airmass", fmt(m.airmass, 3)],
@@ -905,10 +916,12 @@ function targetWarnings(target, includeReadme = false) {
   if (!Number.isFinite(m.alt) || m.alt <= 0) {
     warnings.push({ code: "below", label: "down", detail: "Below horizon", level: "bad" });
   } else if (m.alt < 30 || m.airmass > 2) {
-    warnings.push({ code: "airmass", label: "X>2", detail: "Airmass above 2.0", level: "warn" });
+    warnings.push({ code: "airmass", label: "X>2", detail: `Airmass ${fmt(m.airmass, 2)} above 2.0`, level: m.airmass > 3 ? "bad" : "warn" });
   }
   const haLimit = Number(target.haLimitHours);
-  if (Number.isFinite(haLimit) && haLimit > 0 && Math.abs(m.haHours) > haLimit) {
+  if (Number.isFinite(m.haHours) && m.haHours > 2) {
+    warnings.push({ code: "ha", label: "HA", detail: `HA ${fmt(m.haHours, 2)} hr exceeds +2 hr`, level: "warn" });
+  } else if (Number.isFinite(haLimit) && haLimit > 0 && Math.abs(m.haHours) > haLimit) {
     warnings.push({ code: "ha", label: "HA", detail: `Outside HA limit (${fmt(haLimit, 1)} hr)`, level: "warn" });
   }
   const moon = moonRisk(target);
