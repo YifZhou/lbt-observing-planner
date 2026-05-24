@@ -3,6 +3,8 @@ const els = {};
 let state = null;
 let selectedId = "";
 let metricsCache = new Map();
+let nightSampleCache = new Map();
+let targetTrackCache = new Map();
 let saveTimer = null;
 let draggedTargetId = "";
 let sliderFrame = 0;
@@ -514,20 +516,29 @@ function refineSunAltitudeCrossing(t0, t1, altDeg) {
 function computeMetrics() {
   metricsCache = new Map();
   const date = selectedUtc();
+  const lstDeg = localSiderealTime(date, LBT.lonDeg);
   const moon = moonPosition(date);
   const sun = sunPosition(date);
-  const sunAlt = altAz(sun.raDeg, sun.decDeg, date, LBT.latDeg, LBT.lonDeg).alt;
-  const moonAltAz = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
-  for (const target of state.targets) {
+  const sunAlt = altAzAtLst(sun.raDeg, sun.decDeg, lstDeg, LBT.latDeg).alt;
+  const moonAltAz = altAzAtLst(moon.raDeg, moon.decDeg, lstDeg, LBT.latDeg);
+  for (const target of metricTargets()) {
     const pos = target.raDeg == null || target.decDeg == null
       ? { alt: NaN, az: NaN, haHours: NaN, airmass: NaN }
-      : altAz(target.raDeg, target.decDeg, date, LBT.latDeg, LBT.lonDeg);
+      : altAzAtLst(target.raDeg, target.decDeg, lstDeg, LBT.latDeg);
     const moonSep = target.raDeg == null || target.decDeg == null
       ? NaN
       : angularSep(target.raDeg, target.decDeg, moon.raDeg, moon.decDeg);
     const sky = skyBrightnessEstimate({ ...pos, moonSep, moonAlt: moonAltAz.alt, moonIllum: moon.phase, sunAlt });
     metricsCache.set(target.id, { ...pos, moonSep, moonAlt: moonAltAz.alt, moonIllum: moon.phase, sunAlt, ...sky });
   }
+}
+
+function metricTargets() {
+  return uniqueTargets([
+    ...instrumentTargets(),
+    ...state.sequence.map(getTarget).filter(Boolean),
+    getTarget(selectedId)
+  ]);
 }
 
 function renderTabs() {
@@ -541,6 +552,7 @@ function renderTabs() {
     btn.addEventListener("click", () => {
       state.meta.activeView = "planner";
       state.meta.activeInstrument = inst;
+      computeMetrics();
       selectedId = visibleTargets()[0]?.id || state.targets.find((t) => t.instrument === inst)?.id || selectedId;
       renderAndSave();
     });
@@ -1367,7 +1379,7 @@ function drawAltitudePlot() {
       drawAltTrack(ctx, target, start, pad, w, h, "rgba(120,174,247,0.22)", 7, [10, 7]);
     }
     drawAltTrack(ctx, target, start, pad, w, h, stroke, isSelected ? 4 : isQueued ? 3 : 1.6, isQueued && !isSelected ? [10, 7] : []);
-    const nowAlt = altAz(target.raDeg, target.decDeg, base, LBT.latDeg, LBT.lonDeg).alt;
+    const nowAlt = metricsCache.get(target.id)?.alt;
     if (Number.isFinite(nowAlt) && nowAlt > 0 && (isSelected || isQueued)) {
       const x = pad.l + ((base - start) / (ALT_PLOT_HOURS * 3600 * 1000)) * (w - pad.l - pad.r);
       const y = pad.t + (1 - clamp(nowAlt, 0, 90) / 90) * (h - pad.t - pad.b);
@@ -1477,6 +1489,70 @@ function setupCanvas(canvas) {
   return { ctx, w: width, h: height };
 }
 
+function getNightSamples(start) {
+  const key = String(start.getTime());
+  const cached = nightSampleCache.get(key);
+  if (cached) return cached;
+  const samples = ALT_PLOT_HOURS * 6;
+  const times = [];
+  const lstDegs = [];
+  const sunAltMidpoints = [];
+  for (let i = 0; i <= samples; i++) {
+    const date = new Date(start.getTime() + i * 10 * 60 * 1000);
+    times.push(date);
+    lstDegs.push(localSiderealTime(date, LBT.lonDeg));
+  }
+  for (let i = 0; i < samples; i++) {
+    const date = new Date(start.getTime() + (i + 0.5) * 10 * 60 * 1000);
+    const sun = sunPosition(date);
+    const lstDeg = localSiderealTime(date, LBT.lonDeg);
+    sunAltMidpoints.push(altAzAtLst(sun.raDeg, sun.decDeg, lstDeg, LBT.latDeg).alt);
+  }
+  const value = { samples, times, lstDegs, sunAltMidpoints };
+  nightSampleCache.set(key, value);
+  trimMapCache(nightSampleCache, 12);
+  return value;
+}
+
+function altitudeTrack(target, start) {
+  return targetTrack(target, start).map((pos) => pos.alt);
+}
+
+function altAzTrack(target, start) {
+  return targetTrack(target, start);
+}
+
+function targetTrack(target, start) {
+  const key = `target|${start.getTime()}|${target.id}|${target.raDeg}|${target.decDeg}`;
+  const cached = targetTrackCache.get(key);
+  if (cached) return cached;
+  const night = getNightSamples(start);
+  const track = night.lstDegs.map((lstDeg) => altAzAtLst(target.raDeg, target.decDeg, lstDeg, LBT.latDeg));
+  targetTrackCache.set(key, track);
+  trimMapCache(targetTrackCache, 800);
+  return track;
+}
+
+function moonAltitudeTrack(start) {
+  const key = `moon|${start.getTime()}`;
+  const cached = targetTrackCache.get(key);
+  if (cached) return cached;
+  const night = getNightSamples(start);
+  const track = night.times.map((date, idx) => {
+    const moon = moonPosition(date);
+    return altAzAtLst(moon.raDeg, moon.decDeg, night.lstDegs[idx], LBT.latDeg);
+  });
+  targetTrackCache.set(key, track);
+  trimMapCache(targetTrackCache, 800);
+  return track;
+}
+
+function trimMapCache(map, maxEntries) {
+  while (map.size > maxEntries) {
+    map.delete(map.keys().next().value);
+  }
+}
+
 function drawTwilightBands(ctx, pad, w, h, start) {
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
@@ -1488,11 +1564,10 @@ function drawTwilightBands(ctx, pad, w, h, start) {
     { max: 90, color: "rgba(242, 184, 75, 0.08)", label: "Day" }
   ];
   let lastLabelX = -999;
-  const samples = ALT_PLOT_HOURS * 6;
+  const night = getNightSamples(start);
+  const samples = night.samples;
   for (let i = 0; i < samples; i++) {
-    const t = new Date(start.getTime() + (i + 0.5) * 10 * 60 * 1000);
-    const sun = sunPosition(t);
-    const sunAlt = altAz(sun.raDeg, sun.decDeg, t, LBT.latDeg, LBT.lonDeg).alt;
+    const sunAlt = night.sunAltMidpoints[i];
     const band = colors.find((b) => sunAlt < b.max) || colors[colors.length - 1];
     const x = pad.l + (i / samples) * plotW;
     ctx.fillStyle = band.color;
@@ -1534,33 +1609,30 @@ function drawAltTrack(ctx, target, start, pad, w, h, color, width, dash) {
   ctx.lineWidth = width;
   ctx.strokeStyle = color;
   ctx.setLineDash(dash);
-  const samples = ALT_PLOT_HOURS * 6;
-  for (let i = 0; i <= samples; i++) {
-    const d = new Date(start.getTime() + i * 10 * 60 * 1000);
-    const alt = altAz(target.raDeg, target.decDeg, d, LBT.latDeg, LBT.lonDeg).alt;
-    const x = pad.l + (i / samples) * (w - pad.l - pad.r);
+  const track = altitudeTrack(target, start);
+  const denom = Math.max(track.length - 1, 1);
+  track.forEach((alt, i) => {
+    const x = pad.l + (i / denom) * (w - pad.l - pad.r);
     const y = pad.t + (1 - clamp(alt, 0, 90) / 90) * (h - pad.t - pad.b);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
+  });
   ctx.stroke();
 }
 
 function drawMoonAltitude(ctx, start, base, pad, w, h) {
-  const samples = ALT_PLOT_HOURS * 6;
+  const points = moonAltitudeTrack(start);
+  const denom = Math.max(points.length - 1, 1);
   ctx.strokeStyle = "rgba(242,184,75,0.82)";
   ctx.lineWidth = 2.2;
   ctx.setLineDash([5, 6]);
   ctx.beginPath();
   let penDown = false;
-  for (let i = 0; i <= samples; i++) {
-    const date = new Date(start.getTime() + i * 10 * 60 * 1000);
-    const moon = moonPosition(date);
-    const pos = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
+  points.forEach((pos, i) => {
     if (pos.alt <= 0) {
       penDown = false;
-      continue;
+      return;
     }
-    const x = pad.l + (i / samples) * (w - pad.l - pad.r);
+    const x = pad.l + (i / denom) * (w - pad.l - pad.r);
     const y = pad.t + (1 - clamp(pos.alt, 0, 90) / 90) * (h - pad.t - pad.b);
     if (!penDown) {
       ctx.moveTo(x, y);
@@ -1568,7 +1640,7 @@ function drawMoonAltitude(ctx, start, base, pad, w, h) {
     } else {
       ctx.lineTo(x, y);
     }
-  }
+  });
   ctx.stroke();
   ctx.setLineDash([]);
   const moon = moonPosition(base);
@@ -1662,18 +1734,14 @@ function drawAltAzPlot() {
 }
 
 function drawAltAzTrack(ctx, target, start, pad, w, h, color, width, dash) {
-  const samples = ALT_PLOT_HOURS * 6;
-  const points = [];
-  for (let i = 0; i <= samples; i++) {
-    const d = new Date(start.getTime() + i * 10 * 60 * 1000);
-    const pos = altAz(target.raDeg, target.decDeg, d, LBT.latDeg, LBT.lonDeg);
-    if (pos.alt > 0) points.push({
+  const points = altAzTrack(target, start).map((pos) => {
+    if (pos.alt > 0) return {
       az: mod(pos.az, 360),
       x: altAzX(pos.az, pad, w),
       y: altAzY(pos.alt, pad, h)
-    });
-    else points.push(null);
-  }
+    };
+    return null;
+  });
   drawSegmentedAltAzLine(ctx, points, color, width, dash);
 }
 
@@ -1705,19 +1773,14 @@ function drawSegmentedAltAzLine(ctx, points, color, width, dash) {
 }
 
 function drawMoonAltAz(ctx, start, base, pad, w, h) {
-  const samples = ALT_PLOT_HOURS * 6;
-  const points = [];
-  for (let i = 0; i <= samples; i++) {
-    const date = new Date(start.getTime() + i * 10 * 60 * 1000);
-    const moon = moonPosition(date);
-    const pos = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
-    if (pos.alt > 0) points.push({
+  const points = moonAltitudeTrack(start).map((pos) => {
+    if (pos.alt > 0) return {
       az: mod(pos.az, 360),
       x: altAzX(pos.az, pad, w),
       y: altAzY(pos.alt, pad, h)
-    });
-    else points.push(null);
-  }
+    };
+    return null;
+  });
   drawSegmentedAltAzLine(ctx, points, "rgba(242,184,75,0.82)", 2.2, [5, 6]);
   const moon = moonPosition(base);
   const pos = altAz(moon.raDeg, moon.decDeg, base, LBT.latDeg, LBT.lonDeg);
@@ -2893,7 +2956,11 @@ function localSiderealTime(date, lonDeg) {
 
 function altAz(raDeg, decDeg, date, latDeg, lonDeg) {
   const lst = localSiderealTime(date, lonDeg);
-  let ha = mod(lst - raDeg + 180, 360) - 180;
+  return altAzAtLst(raDeg, decDeg, lst, latDeg);
+}
+
+function altAzAtLst(raDeg, decDeg, lstDeg, latDeg) {
+  let ha = mod(lstDeg - raDeg + 180, 360) - 180;
   const lat = rad(latDeg);
   const dec = rad(decDeg);
   const har = rad(ha);
