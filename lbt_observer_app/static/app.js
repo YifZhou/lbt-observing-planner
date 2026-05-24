@@ -219,12 +219,12 @@ function handleHotkey(event) {
   const key = event.key.toLowerCase();
   if (key === "arrowleft") {
     event.preventDefault();
-    shiftSelectedTime(10);
+    shiftSelectedTime(-10);
     return;
   }
   if (key === "arrowright") {
     event.preventDefault();
-    shiftSelectedTime(-10);
+    shiftSelectedTime(10);
     return;
   }
   if ((state.meta.activeView || "planner") !== "planner") return;
