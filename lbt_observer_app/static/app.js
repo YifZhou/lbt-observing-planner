@@ -30,7 +30,7 @@ const ATM_TEMP_C = 2;
 document.addEventListener("DOMContentLoaded", async () => {
   [
     "dateInput", "timeInput", "timeSlider", "timeMinusBtn", "timePlusBtn", "utTime", "lbtLocalTime", "observerLocalTime", "zoneInput", "nowBtn", "saveBtn", "rebuildBtn",
-    "instrumentTabs", "searchInput", "statusFilter", "flagFilter", "targetLimit", "upOnly", "hideDone",
+    "instrumentTabs", "searchInput", "statusFilter", "flagFilter", "targetLimit", "upOnly", "hideDone", "manualTargetBtn",
     "nightStats", "summaryCards", "altCanvas", "altAzCanvas", "skyCanvas", "targetTable",
     "targetCount", "plotTargetLabel", "selectedTitle", "selectedMeta", "warningBadges", "diagnosticsGrid",
     "queueBtn", "notesBox", "sequenceList", "clearSequenceBtn",
@@ -43,7 +43,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     "atmRedWave", "atmSeeing", "atmSlitWidth", "readmeWorkspaceTitle",
     "readmeWorkspaceMeta", "readmeWorkspaceText", "readmeNotesBox",
     "readmeIndexPanel", "readmeIndexCount", "readmeIndexList",
-    "targetDetailPanel", "diagnosticsPanel", "sequencePanel", "sequenceTimeline", "targetReadmePanel"
+    "targetDetailPanel", "diagnosticsPanel", "sequencePanel", "sequenceTimeline", "targetReadmePanel",
+    "manualTargetModal", "manualTargetForm", "manualTargetClose", "manualTargetCancel", "manualTargetName",
+    "manualInstrument", "manualProgram", "manualPriority", "manualRa", "manualDec", "manualVisit",
+    "manualHaLimit", "manualReadme", "manualNotes", "manualTargetError"
   ].forEach((id) => { els[id] = $(id); });
 
   await loadState();
@@ -153,6 +156,14 @@ function wireEvents() {
     els.hideDone.checked = false;
     render();
   });
+  els.manualTargetBtn.addEventListener("click", openManualTargetModal);
+  els.manualTargetClose.addEventListener("click", closeManualTargetModal);
+  els.manualTargetCancel.addEventListener("click", closeManualTargetModal);
+  els.manualTargetModal.addEventListener("click", (event) => {
+    if (event.target === els.manualTargetModal) closeManualTargetModal();
+  });
+  els.manualInstrument.addEventListener("change", populateManualReadmeOptions);
+  els.manualTargetForm.addEventListener("submit", addManualTarget);
   els.queueBtn.addEventListener("click", () => {
     toggleSelectedQueue();
   });
@@ -995,6 +1006,102 @@ function moveTargetBefore(sourceId, targetId) {
   state.meta.sortKey = "manual";
   state.meta.sortDir = "asc";
   renderAndSave();
+}
+
+function openManualTargetModal() {
+  populateManualInstrumentOptions();
+  els.manualTargetForm.reset();
+  els.manualInstrument.value = state.meta.activeInstrument || instruments()[0] || "MODS";
+  els.manualProgram.value = "Manual";
+  els.manualVisit.value = "";
+  els.manualTargetError.textContent = "";
+  populateManualReadmeOptions();
+  els.manualTargetModal.classList.remove("hidden");
+  els.manualTargetName.focus();
+}
+
+function closeManualTargetModal() {
+  els.manualTargetModal.classList.add("hidden");
+  els.manualTargetError.textContent = "";
+}
+
+function populateManualInstrumentOptions() {
+  const known = ["MODS", "LUCI", "LBC", "PEPSI", "SHARK-V", "P-POL"];
+  const names = [...new Set([...known, ...instruments()].map(normalizeInstrument).filter(Boolean))]
+    .sort((a, b) => instrumentRank(a) - instrumentRank(b) || a.localeCompare(b));
+  els.manualInstrument.innerHTML = names.map((name) =>
+    `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`
+  ).join("");
+}
+
+function populateManualReadmeOptions() {
+  const inst = normalizeInstrument(els.manualInstrument.value || state.meta.activeInstrument);
+  const readmes = state.readmes
+    .filter((r) => !r.instrument || r.instrument === inst)
+    .sort((a, b) => String(a.projectId || a.filename).localeCompare(String(b.projectId || b.filename)));
+  els.manualReadme.innerHTML = [
+    `<option value="">No readme link</option>`,
+    ...readmes.map((readme) =>
+      `<option value="${escapeHtml(readme.id)}">${escapeHtml(readme.projectId || readme.filename)}${readme.title ? ` - ${escapeHtml(readme.title)}` : ""}</option>`
+    )
+  ].join("");
+}
+
+function addManualTarget(event) {
+  event.preventDefault();
+  const name = els.manualTargetName.value.trim();
+  const instrument = normalizeInstrument(els.manualInstrument.value || state.meta.activeInstrument);
+  const program = els.manualProgram.value.trim() || "Manual";
+  const raDeg = parseManualRa(els.manualRa.value);
+  const decDeg = parseManualDec(els.manualDec.value);
+  const priority = toNum(els.manualPriority.value);
+  const visitHours = toNum(els.manualVisit.value);
+  const haLimitHours = toNum(els.manualHaLimit.value);
+  if (!name) return showManualTargetError("Target name is required.");
+  if (!Number.isFinite(raDeg) || raDeg < 0 || raDeg >= 360) return showManualTargetError("RA is invalid.");
+  if (!Number.isFinite(decDeg) || decDeg < -90 || decDeg > 90) return showManualTargetError("Dec is invalid.");
+  const target = {
+    id: hash(`manual|${instrument}|${program}|${name}|${raDeg.toFixed(6)}|${decDeg.toFixed(6)}`),
+    source: "manual",
+    sourceSheet: "",
+    instrument,
+    displayInstrument: instrument,
+    targetName: name,
+    programName: program,
+    partner: derivePartner(program),
+    priority: Number.isFinite(priority) ? priority : 50,
+    prioritySource: "manual",
+    status: "",
+    raDeg,
+    decDeg,
+    raText: degToHms(raDeg),
+    decText: degToDms(decDeg),
+    visitHours: Number.isFinite(visitHours) ? visitHours : 0,
+    haLimitHours: Number.isFinite(haLimitHours) && haLimitHours > 0 ? haLimitHours : null,
+    notes: els.manualNotes.value.trim(),
+    readmeId: els.manualReadme.value || "",
+    readmeLink: "",
+    observedAt: "",
+    manualOrder: nextManualOrder(instrument)
+  };
+  state.targets = mergeByIdentity([...state.targets, target]);
+  state.meta.activeInstrument = instrument;
+  state.meta.activeView = "planner";
+  selectedId = target.id;
+  closeManualTargetModal();
+  renderAndSave();
+}
+
+function showManualTargetError(message) {
+  els.manualTargetError.textContent = message;
+}
+
+function nextManualOrder(instrument) {
+  const orders = state.targets
+    .filter((t) => t.instrument === instrument)
+    .map((t) => Number(t.manualOrder))
+    .filter(Number.isFinite);
+  return orders.length ? Math.max(...orders) + 1 : 0;
 }
 
 function renderSelected() {
@@ -2645,6 +2752,7 @@ function makeStatusExport() {
   return {
     kind: "lbt-status-exchange",
     exportedAt: new Date().toISOString(),
+    manualTargets: state.targets.filter((t) => t.source === "manual").map((t) => ({ ...t })),
     statuses: state.targets.map((t) => ({
       id: t.id,
       instrument: t.instrument,
@@ -2687,6 +2795,9 @@ async function importFile(event) {
 
 function importJson(data) {
   if (Array.isArray(data.statuses) || data.kind === "lbt-status-exchange") {
+    if (Array.isArray(data.manualTargets)) {
+      state.targets = mergeByIdentity([...state.targets, ...data.manualTargets.map((t) => ({ ...t, source: "manual" }))]);
+    }
     const rows = data.statuses || [];
     rows.forEach((row) => {
       const target = state.targets.find((t) => t.id === row.id) || state.targets.find((t) =>
@@ -2798,6 +2909,7 @@ function targetIdentity(target) {
 
 function targetSourceRank(source) {
   const text = String(source || "");
+  if (text === "manual") return Number.MAX_SAFE_INTEGER;
   const date = text.match(/(\d{4})_(\d{2})_(\d{2})/);
   const dateRank = date ? Number(`${date[1]}${date[2]}${date[3]}`) : 0;
   let kindRank = 1;
@@ -2949,6 +3061,59 @@ function parseDec(v) {
   const d = Math.trunc(Math.abs(x));
   const m = (Math.abs(x) - d) * 100;
   return sign * (d + m / 60);
+}
+
+function parseManualRa(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return NaN;
+  const s = raw.toLowerCase().replace(/°/g, " deg");
+  if (/\bdeg(?:ree|rees)?\b/.test(s)) {
+    return Number.parseFloat(s);
+  }
+  if (/[hms]/.test(s)) {
+    const parts = sexagesimalParts(s.replace(/[hms]/g, " "));
+    return 15 * sexagesimalValue(parts, 1);
+  }
+  if (s.includes(":") || s.trim().split(/\s+/).length > 1) {
+    return 15 * sexagesimalValue(sexagesimalParts(s), 1);
+  }
+  const x = Number(s);
+  if (!Number.isFinite(x)) return NaN;
+  return x <= 24 ? 15 * x : x;
+}
+
+function parseManualDec(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return NaN;
+  const s = raw.toLowerCase().replace(/°/g, " deg");
+  if (/\bdeg(?:ree|rees)?\b/.test(s)) {
+    return Number.parseFloat(s);
+  }
+  if (/[dms]/.test(s) && !/\bdeg(?:ree|rees)?\b/.test(s)) {
+    return sexagesimalValue(sexagesimalParts(s.replace(/[dms]/g, " ")), signFromText(s));
+  }
+  if (s.includes(":") || s.trim().split(/\s+/).length > 1) {
+    return sexagesimalValue(sexagesimalParts(s), signFromText(s));
+  }
+  return Number.parseFloat(s);
+}
+
+function sexagesimalParts(text) {
+  return String(text)
+    .trim()
+    .replace(/^[+-]/, "")
+    .split(/[:\s]+/)
+    .filter(Boolean)
+    .map(Number);
+}
+
+function sexagesimalValue(parts, sign) {
+  if (!parts.length || parts.some((p) => !Number.isFinite(p))) return NaN;
+  return sign * (Math.abs(parts[0]) + (parts[1] || 0) / 60 + (parts[2] || 0) / 3600);
+}
+
+function signFromText(text) {
+  return String(text).trim().startsWith("-") ? -1 : 1;
 }
 
 function degToHms(raDeg) {

@@ -168,6 +168,7 @@
             <label class="check"><input id="upOnly" type="checkbox"> Up now</label>
             <label class="check"><input id="hideDone" type="checkbox" checked> Hide done</label>
             <button id="clearFiltersBtn" class="iconBtn" title="Clear filters">Clear</button>
+            <button id="manualTargetBtn" class="iconBtn" title="Add a target not loaded from OSURC">Manual target</button>
           </div>
           <div class="tableWrap">
             <table id="targetTable">
@@ -310,6 +311,36 @@
     </aside>
     </section>
   </main>
+
+  <div id="manualTargetModal" class="modalOverlay hidden" role="dialog" aria-modal="true" aria-labelledby="manualTargetTitle">
+    <form id="manualTargetForm" class="modalCard">
+      <div class="panelHeader">
+        <h2 id="manualTargetTitle">Manual Target</h2>
+        <button id="manualTargetClose" class="iconBtn" type="button">Close</button>
+      </div>
+      <div class="manualTargetGrid">
+        <label>Target name <input id="manualTargetName" type="text" required autocomplete="off"></label>
+        <label>Instrument
+          <select id="manualInstrument"></select>
+        </label>
+        <label>Program <input id="manualProgram" type="text" autocomplete="off"></label>
+        <label>Priority <input id="manualPriority" type="number" step="0.1" min="0"></label>
+        <label>RA <input id="manualRa" type="text" required autocomplete="off" placeholder="05:52:27.6"></label>
+        <label>Dec <input id="manualDec" type="text" required autocomplete="off" placeholder="+15:53:13.8"></label>
+        <label>Visit, hr <input id="manualVisit" type="number" step="0.01" min="0"></label>
+        <label>HA limit, hr <input id="manualHaLimit" type="number" step="0.1" min="0"></label>
+        <label class="manualReadmeField">Readme
+          <select id="manualReadme"></select>
+        </label>
+        <label class="manualNotesField">Notes <textarea id="manualNotes" rows="4" spellcheck="true"></textarea></label>
+      </div>
+      <p id="manualTargetError" class="formError" role="alert"></p>
+      <div class="modalActions">
+        <button id="manualTargetCancel" type="button">Cancel</button>
+        <button class="primaryBtn" type="submit">Add target</button>
+      </div>
+    </form>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>
