@@ -1626,25 +1626,37 @@ function drawAltAzTrack(ctx, target, start, pad, w, h, color, width, dash) {
     const d = new Date(start.getTime() + i * 10 * 60 * 1000);
     const pos = altAz(target.raDeg, target.decDeg, d, LBT.latDeg, LBT.lonDeg);
     if (pos.alt > 0) points.push({
+      az: mod(pos.az, 360),
       x: altAzX(pos.az, pad, w),
       y: altAzY(pos.alt, pad, h)
     });
+    else points.push(null);
   }
-  drawSortedAltAzLine(ctx, points, color, width, dash);
+  drawSegmentedAltAzLine(ctx, points, color, width, dash);
 }
 
-function drawSortedAltAzLine(ctx, points, color, width, dash) {
-  const sorted = points
-    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
-    .sort((a, b) => a.x - b.x);
-  if (sorted.length < 2) return;
+function drawSegmentedAltAzLine(ctx, points, color, width, dash) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.setLineDash(dash);
   ctx.beginPath();
-  sorted.forEach((p, idx) => {
-    if (idx === 0) ctx.moveTo(p.x, p.y);
-    else ctx.lineTo(p.x, p.y);
+  let penDown = false;
+  let last = null;
+  points.forEach((p) => {
+    const discontinuity = !p || !Number.isFinite(p.x) || !Number.isFinite(p.y)
+      || (last && Math.abs(p.az - last.az) > 180);
+    if (discontinuity) {
+      penDown = false;
+      last = p;
+      return;
+    }
+    if (!penDown) {
+      ctx.moveTo(p.x, p.y);
+      penDown = true;
+    } else {
+      ctx.lineTo(p.x, p.y);
+    }
+    last = p;
   });
   ctx.stroke();
   ctx.setLineDash([]);
@@ -1658,11 +1670,13 @@ function drawMoonAltAz(ctx, start, base, pad, w, h) {
     const moon = moonPosition(date);
     const pos = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
     if (pos.alt > 0) points.push({
+      az: mod(pos.az, 360),
       x: altAzX(pos.az, pad, w),
       y: altAzY(pos.alt, pad, h)
     });
+    else points.push(null);
   }
-  drawSortedAltAzLine(ctx, points, "rgba(242,184,75,0.82)", 2.2, [5, 6]);
+  drawSegmentedAltAzLine(ctx, points, "rgba(242,184,75,0.82)", 2.2, [5, 6]);
   const moon = moonPosition(base);
   const pos = altAz(moon.raDeg, moon.decDeg, base, LBT.latDeg, LBT.lonDeg);
   if (Number.isFinite(pos.alt) && pos.alt > 0) {
