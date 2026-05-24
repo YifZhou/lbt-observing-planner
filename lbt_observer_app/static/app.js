@@ -29,7 +29,7 @@ const ATM_TEMP_C = 2;
 
 document.addEventListener("DOMContentLoaded", async () => {
   [
-    "dateInput", "timeInput", "timeSlider", "timeMinusBtn", "timePlusBtn", "lbtLocalTime", "zoneInput", "nowBtn", "saveBtn", "rebuildBtn",
+    "dateInput", "timeInput", "timeSlider", "timeMinusBtn", "timePlusBtn", "utTime", "lbtLocalTime", "observerLocalTime", "zoneInput", "nowBtn", "saveBtn", "rebuildBtn",
     "instrumentTabs", "searchInput", "statusFilter", "flagFilter", "targetLimit", "upOnly", "hideDone",
     "nightStats", "summaryCards", "altCanvas", "altAzCanvas", "skyCanvas", "targetTable",
     "targetCount", "plotTargetLabel", "selectedTitle", "selectedMeta", "warningBadges", "diagnosticsGrid",
@@ -478,13 +478,19 @@ function syncInputs() {
 }
 
 function updateLbtLocalReadout() {
-  if (!els.lbtLocalTime) return;
-  els.lbtLocalTime.textContent = lbtLocalTimeLabel(new Date());
+  const now = new Date();
+  if (els.utTime) els.utTime.textContent = timeOnlyLabel(now, "UTC");
+  if (els.lbtLocalTime) els.lbtLocalTime.textContent = timeOnlyLabel(now, "TUCSON");
+  if (els.observerLocalTime) els.observerLocalTime.textContent = timeOnlyLabel(now, "BROWSER");
 }
 
 function lbtLocalTimeLabel(instant) {
   const parts = localPartsFromUtc(instant, "TUCSON");
   return `${parts.date} ${parts.time} MST`;
+}
+
+function timeOnlyLabel(instant, zone) {
+  return localPartsFromUtc(instant, zone).time;
 }
 
 function eventDateTime(date, zone) {

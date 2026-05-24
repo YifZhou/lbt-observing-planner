@@ -212,7 +212,9 @@ h2 {
 
 #dateInput,
 #timeInput,
+#utTime,
 #lbtLocalTime,
+#observerLocalTime,
 .kv span,
 .selectedMeta span {
   font-variant-numeric: tabular-nums;
@@ -237,8 +239,8 @@ h2 {
 }
 
 .timeReadout {
-  width: 166px;
-  flex: 0 0 166px;
+  width: 104px;
+  flex: 0 0 104px;
   min-height: 34px;
   display: grid;
   align-content: center;

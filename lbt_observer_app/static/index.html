@@ -36,8 +36,16 @@
       <button id="timeMinusBtn" class="iconBtn" title="Move time back 30 minutes; rolls to the previous date at midnight">-30m</button>
       <button id="timePlusBtn" class="iconBtn" title="Move time forward 30 minutes; rolls to the next date at midnight">+30m</button>
       <div class="timeReadout">
+        <span>UT</span>
+        <strong id="utTime">--</strong>
+      </div>
+      <div class="timeReadout">
         <span>LBT local</span>
         <strong id="lbtLocalTime">--</strong>
+      </div>
+      <div class="timeReadout">
+        <span>Observer local</span>
+        <strong id="observerLocalTime">--</strong>
       </div>
       <label>Zone
         <select id="zoneInput">
