@@ -216,8 +216,18 @@ function wireEvents() {
 function handleHotkey(event) {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
   if (isTypingTarget(event.target)) return;
-  if ((state.meta.activeView || "planner") !== "planner") return;
   const key = event.key.toLowerCase();
+  if (key === "arrowleft") {
+    event.preventDefault();
+    shiftSelectedTime(10);
+    return;
+  }
+  if (key === "arrowright") {
+    event.preventDefault();
+    shiftSelectedTime(-10);
+    return;
+  }
+  if ((state.meta.activeView || "planner") !== "planner") return;
   if (key === "q") {
     event.preventDefault();
     toggleSelectedQueue();
