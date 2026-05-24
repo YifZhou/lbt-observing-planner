@@ -498,7 +498,7 @@ function formatSolarEventTimes(date) {
   return [
     ["UTC", eventDateTime(date, "UTC")],
     ["Local", eventDateTime(date, "BROWSER")],
-    ["Tucson", `${eventDateTime(date, "TUCSON")} MST`]
+    ["Tucson", eventDateTime(date, "TUCSON")]
   ].map(([label, value]) =>
     `<span class="eventTimeRow"><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`
   ).join("");
