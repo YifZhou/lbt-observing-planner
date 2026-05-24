@@ -1620,61 +1620,49 @@ function drawAltAzPlot() {
 }
 
 function drawAltAzTrack(ctx, target, start, pad, w, h, color, width, dash) {
+  const samples = ALT_PLOT_HOURS * 6;
+  const points = [];
+  for (let i = 0; i <= samples; i++) {
+    const d = new Date(start.getTime() + i * 10 * 60 * 1000);
+    const pos = altAz(target.raDeg, target.decDeg, d, LBT.latDeg, LBT.lonDeg);
+    if (pos.alt > 0) points.push({
+      x: altAzX(pos.az, pad, w),
+      y: altAzY(pos.alt, pad, h)
+    });
+  }
+  drawSortedAltAzLine(ctx, points, color, width, dash);
+}
+
+function drawSortedAltAzLine(ctx, points, color, width, dash) {
+  const sorted = points
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+    .sort((a, b) => a.x - b.x);
+  if (sorted.length < 2) return;
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.setLineDash(dash);
   ctx.beginPath();
-  const samples = ALT_PLOT_HOURS * 6;
-  let penDown = false;
-  for (let i = 0; i <= samples; i++) {
-    const d = new Date(start.getTime() + i * 10 * 60 * 1000);
-    const pos = altAz(target.raDeg, target.decDeg, d, LBT.latDeg, LBT.lonDeg);
-    if (pos.alt <= 0) {
-      penDown = false;
-      continue;
-    }
-    const x = altAzX(pos.az, pad, w);
-    const y = altAzY(pos.alt, pad, h);
-    if (!penDown) {
-      ctx.moveTo(x, y);
-      penDown = true;
-    } else {
-      ctx.lineTo(x, y);
-    }
-  }
+  sorted.forEach((p, idx) => {
+    if (idx === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  });
   ctx.stroke();
   ctx.setLineDash([]);
 }
 
 function drawMoonAltAz(ctx, start, base, pad, w, h) {
-  ctx.strokeStyle = "rgba(242,184,75,0.82)";
-  ctx.lineWidth = 2.2;
-  ctx.setLineDash([5, 6]);
-  ctx.beginPath();
   const samples = ALT_PLOT_HOURS * 6;
-  let penDown = false;
-  let lastAz = NaN;
+  const points = [];
   for (let i = 0; i <= samples; i++) {
     const date = new Date(start.getTime() + i * 10 * 60 * 1000);
     const moon = moonPosition(date);
     const pos = altAz(moon.raDeg, moon.decDeg, date, LBT.latDeg, LBT.lonDeg);
-    if (pos.alt <= 0 || (Number.isFinite(lastAz) && Math.abs(pos.az - lastAz) > 180)) {
-      penDown = false;
-      lastAz = pos.az;
-      continue;
-    }
-    const x = altAzX(pos.az, pad, w);
-    const y = altAzY(pos.alt, pad, h);
-    if (!penDown) {
-      ctx.moveTo(x, y);
-      penDown = true;
-    } else {
-      ctx.lineTo(x, y);
-    }
-    lastAz = pos.az;
+    if (pos.alt > 0) points.push({
+      x: altAzX(pos.az, pad, w),
+      y: altAzY(pos.alt, pad, h)
+    });
   }
-  ctx.stroke();
-  ctx.setLineDash([]);
+  drawSortedAltAzLine(ctx, points, "rgba(242,184,75,0.82)", 2.2, [5, 6]);
   const moon = moonPosition(base);
   const pos = altAz(moon.raDeg, moon.decDeg, base, LBT.latDeg, LBT.lonDeg);
   if (Number.isFinite(pos.alt) && pos.alt > 0) {
@@ -1688,7 +1676,8 @@ function drawMoonAltAz(ctx, start, base, pad, w, h) {
 }
 
 function altAzX(azDeg, pad, w) {
-  return pad.l + mod(azDeg, 360) / 360 * (w - pad.l - pad.r);
+  const az = Number.isFinite(azDeg) && Math.abs(azDeg - 360) < 1e-9 ? 360 : mod(azDeg, 360);
+  return pad.l + az / 360 * (w - pad.l - pad.r);
 }
 
 function altAzY(altDeg, pad, h) {
