@@ -9,6 +9,7 @@ let saveTimer = null;
 let draggedTargetId = "";
 let sliderFrame = 0;
 let pendingSliderMinutes = null;
+let lastSliderPlotAt = 0;
 
 const $ = (id) => document.getElementById(id);
 const fmt = (x, digits = 1) => Number.isFinite(x) ? x.toFixed(digits) : "";
@@ -108,10 +109,13 @@ function wireEvents() {
     if (sliderFrame) return;
     sliderFrame = requestAnimationFrame(() => {
       sliderFrame = 0;
-      updateFromNightSlider(pendingSliderMinutes);
+      updateFromNightSlider(pendingSliderMinutes, { light: true });
     });
   });
-  els.timeSlider.addEventListener("change", () => scheduleSave());
+  els.timeSlider.addEventListener("change", () => {
+    updateFromNightSlider(Number(els.timeSlider.value), { forcePlots: true });
+    scheduleSave();
+  });
   els.timeMinusBtn.addEventListener("click", () => shiftSelectedTime(-30));
   els.timePlusBtn.addEventListener("click", () => shiftSelectedTime(30));
   els.zoneInput.addEventListener("change", () => {
@@ -385,25 +389,43 @@ function render() {
   els.stateStamp.textContent = `Saved state: ${state.updatedAt || "not yet saved"}`;
 }
 
-function updateFromNightSlider(minutes) {
+function updateFromNightSlider(minutes, options = {}) {
   const utc = utcFromNightSlider(Number(minutes));
   const parts = localPartsFromUtc(utc, state.meta.timezone);
   state.meta.date = parts.date;
   state.meta.selectedLocalTime = `${parts.date}T${parts.time}`;
-  renderTimeChange();
+  renderTimeChange(options);
 }
 
-function renderTimeChange() {
+function renderTimeChange(options = {}) {
   syncInputs();
   computeMetrics();
+  const redrawPlots = shouldRedrawPlotsForTimeChange(options);
   renderSummary();
   renderNight();
-  renderPlots();
+  if (redrawPlots) renderPlots();
   renderTable();
   renderSelected();
   renderDiagnostics();
-  renderSequence();
-  renderAtmDisp();
+  renderSequence({ timeline: redrawPlots });
+  if (!options.light || redrawPlots || state.meta.activeView === "atmdisp") renderAtmDisp();
+}
+
+function shouldRedrawPlotsForTimeChange(options) {
+  if (options.forcePlots || !options.light) {
+    lastSliderPlotAt = clockMs();
+    return true;
+  }
+  const now = clockMs();
+  if (now - lastSliderPlotAt > 180) {
+    lastSliderPlotAt = now;
+    return true;
+  }
+  return false;
+}
+
+function clockMs() {
+  return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
 }
 
 function ensureSelected() {
@@ -516,21 +538,36 @@ function refineSunAltitudeCrossing(t0, t1, altDeg) {
 function computeMetrics() {
   metricsCache = new Map();
   const date = selectedUtc();
+  const context = currentObservingContext(date);
+  for (const target of metricTargets()) {
+    metricsCache.set(target.id, computeCurrentTargetMetric(target, context));
+  }
+}
+
+function currentObservingContext(date) {
   const lstDeg = localSiderealTime(date, LBT.lonDeg);
   const moon = moonPosition(date);
   const sun = sunPosition(date);
   const sunAlt = altAzAtLst(sun.raDeg, sun.decDeg, lstDeg, LBT.latDeg).alt;
   const moonAltAz = altAzAtLst(moon.raDeg, moon.decDeg, lstDeg, LBT.latDeg);
-  for (const target of metricTargets()) {
-    const pos = target.raDeg == null || target.decDeg == null
-      ? { alt: NaN, az: NaN, haHours: NaN, airmass: NaN }
-      : altAzAtLst(target.raDeg, target.decDeg, lstDeg, LBT.latDeg);
-    const moonSep = target.raDeg == null || target.decDeg == null
-      ? NaN
-      : angularSep(target.raDeg, target.decDeg, moon.raDeg, moon.decDeg);
-    const sky = skyBrightnessEstimate({ ...pos, moonSep, moonAlt: moonAltAz.alt, moonIllum: moon.phase, sunAlt });
-    metricsCache.set(target.id, { ...pos, moonSep, moonAlt: moonAltAz.alt, moonIllum: moon.phase, sunAlt, ...sky });
-  }
+  return { date, lstDeg, moon, sun, sunAlt, moonAltAz };
+}
+
+function computeCurrentTargetMetric(target, context) {
+  const pos = target.raDeg == null || target.decDeg == null
+    ? { alt: NaN, az: NaN, haHours: NaN, airmass: NaN }
+    : altAzAtLst(target.raDeg, target.decDeg, context.lstDeg, LBT.latDeg);
+  const moonSep = target.raDeg == null || target.decDeg == null
+    ? NaN
+    : angularSep(target.raDeg, target.decDeg, context.moon.raDeg, context.moon.decDeg);
+  const sky = skyBrightnessEstimate({
+    ...pos,
+    moonSep,
+    moonAlt: context.moonAltAz.alt,
+    moonIllum: context.moon.phase,
+    sunAlt: context.sunAlt
+  });
+  return { ...pos, moonSep, moonAlt: context.moonAltAz.alt, moonIllum: context.moon.phase, sunAlt: context.sunAlt, ...sky };
 }
 
 function metricTargets() {
@@ -1094,10 +1131,10 @@ function warningBadgeHtml(target, mode) {
   ).join("") + (extra > 0 ? `<span class="warnBadge info" title="${extra} more flags">+${extra}</span>` : "");
 }
 
-function renderSequence() {
+function renderSequence(options = {}) {
   els.sequenceList.innerHTML = "";
   state.sequence = state.sequence.filter((id) => getTarget(id));
-  drawSequenceTimeline();
+  if (options.timeline !== false) drawSequenceTimeline();
   for (const [idx, id] of state.sequence.entries()) {
     const t = getTarget(id);
     const m = metricsCache.get(id) || {};
