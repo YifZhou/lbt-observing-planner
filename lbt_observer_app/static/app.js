@@ -490,7 +490,7 @@ function lbtLocalTimeLabel(instant) {
 function eventDateTime(date, zone) {
   if (!date) return "--";
   const parts = localPartsFromUtc(date, zone);
-  return `${parts.date} ${parts.time}`;
+  return parts.time;
 }
 
 function formatSolarEventTimes(date) {
