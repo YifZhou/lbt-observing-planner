@@ -1,5 +1,9 @@
 # LBT Observing Planner
 
+![LBT Observing Planner target-planning interface](docs/observing-planner-overview.png)
+
+The main planning view keeps the night context, instrument selection, target table, altitude/Alt-Az/sky plots, warnings, and observing sequence visible together. The screenshot shows a typical night-mode layout: the left column tracks the active instrument, run summary, local night information, and data actions; the center panel supports target filtering, warning review, and priority edits; the top plots show target visibility, Moon position, twilight, and queue highlighting; the right panel keeps the observing sequence and selected-target details available during real-time decisions.
+
 LBT Observing Planner is a local web application for planning and executing observations at the Large Binocular Telescope. It combines OSURC queue scraping, target review, readme inspection, altitude and sky visualization, observing queue management, atmospheric dispersion checks, and status exchange into one browser interface.
 
 The app is designed for observers who need to make fast decisions during a night. It keeps the target table, altitude plot, sky map, readmes, diagnostics, warning flags, and observing sequence in one local interface.
