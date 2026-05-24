@@ -487,25 +487,29 @@ function lbtLocalTimeLabel(instant) {
   return `${parts.date} ${parts.time} MST`;
 }
 
-function compactDateTime(date, zone) {
+function eventDateTime(date, zone) {
   if (!date) return "--";
   const parts = localPartsFromUtc(date, zone);
-  return `${parts.date.slice(5)} ${parts.time}`;
+  return `${parts.date} ${parts.time}`;
 }
 
 function formatSolarEventTimes(date) {
   if (!date) return "not found";
   return [
-    `UTC ${compactDateTime(date, "UTC")}`,
-    `Local ${compactDateTime(date, "BROWSER")}`,
-    `Tucson ${compactDateTime(date, "TUCSON")} MST`
-  ].map(escapeHtml).join("<br>");
+    ["UTC", eventDateTime(date, "UTC")],
+    ["Local", eventDateTime(date, "BROWSER")],
+    ["Tucson", `${eventDateTime(date, "TUCSON")} MST`]
+  ].map(([label, value]) =>
+    `<span class="eventTimeRow"><em>${escapeHtml(label)}</em><strong>${escapeHtml(value)}</strong></span>`
+  ).join("");
 }
 
 function solarEventsForSelectedNight(instant) {
   const midnight = lbtMidnightForSelectedNight(instant);
   return {
     sunset: findSunAltitudeCrossing(new Date(midnight.getTime() - 12 * 3600 * 1000), midnight, -0.833, "down"),
+    astroDusk: findSunAltitudeCrossing(new Date(midnight.getTime() - 12 * 3600 * 1000), midnight, -18, "down"),
+    astroDawn: findSunAltitudeCrossing(midnight, new Date(midnight.getTime() + 12 * 3600 * 1000), -18, "up"),
     sunrise: findSunAltitudeCrossing(midnight, new Date(midnight.getTime() + 12 * 3600 * 1000), -0.833, "up")
   };
 }
@@ -634,8 +638,10 @@ function renderNight() {
     ["Sun alt", `${fmt(sunAlt)} deg`],
     ["Moon", `${fmt(moon.phase * 100, 0)}%, alt ${fmt(moonAlt)} deg`],
     ["Sunset", formatSolarEventTimes(events.sunset)],
+    ["Astro dark", formatSolarEventTimes(events.astroDusk)],
+    ["Astro dawn", formatSolarEventTimes(events.astroDawn)],
     ["Sunrise", formatSolarEventTimes(events.sunrise)]
-  ].map(([k, v]) => `<div class="${k === "Sunset" || k === "Sunrise" ? "nightEvent" : ""}"><b>${k}</b><span>${v}</span></div>`).join("");
+  ].map(([k, v]) => `<div class="${["Sunset", "Astro dark", "Astro dawn", "Sunrise"].includes(k) ? "nightEvent" : ""}"><b>${k}</b><span>${v}</span></div>`).join("");
 }
 
 function instrumentTargets() {
