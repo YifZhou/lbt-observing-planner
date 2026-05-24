@@ -616,6 +616,8 @@ function passesFlagFilter(target, mode) {
   if (mode === "none") return warnings.length === 0;
   if (mode === "airmass") return warnings.some((w) => w.code === "airmass");
   if (mode === "moon") return warnings.some((w) => w.code === "moon");
+  if (mode === "sky") return warnings.some((w) => w.code === "sky");
+  if (mode === "twilight") return warnings.some((w) => w.code === "twilight");
   if (mode === "ha") return warnings.some((w) => w.code === "ha");
   if (mode === "below") return warnings.some((w) => w.code === "below");
   return true;
@@ -677,15 +679,34 @@ function lbtNightWindowStart(instant) {
 }
 
 function skyBrightnessEstimate(m) {
-  if (!Number.isFinite(m.alt) || m.alt <= 0) return { skyMag: NaN, skyNL: NaN };
-  const moonAltFactor = m.moonAlt > 0 ? Math.sqrt(Math.sin(rad(clamp(m.moonAlt, 0, 90)))) : m.moonAlt > -6 ? 0.25 : 0;
-  const sepFactor = Math.pow(clamp((125 - m.moonSep) / 125, 0, 1), 1.55);
-  const airmassFactor = clamp((Number(m.airmass) || 1) / 1.35, 0.7, 2.2);
-  const moonDelta = 3.2 * Math.pow(clamp(m.moonIllum || 0, 0, 1), 0.75) * moonAltFactor * sepFactor * airmassFactor;
-  const twilightDelta = m.sunAlt > -18 ? Math.pow(clamp((m.sunAlt + 18) / 18, 0, 1), 1.7) * 4.2 : 0;
-  const skyMag = clamp(21.8 - moonDelta - twilightDelta, 16.5, 22.0);
-  const skyNL = 34.08 * Math.pow(10, 0.4 * (21.587 - skyMag));
-  return { skyMag, skyNL };
+  if (!Number.isFinite(m.alt) || m.alt <= 0 || !Number.isFinite(m.moonAlt) || m.moonAlt < 0) {
+    return { skyMag: NaN, skyNL: NaN, twilightLevel: twilightWarningLevel(m.sunAlt) };
+  }
+  const kabs = 0.143;
+  const moonPhaseAngle = deg(Math.acos(clamp(1 - 2 * clamp(m.moonIllum || 0, 0, 1), -1, 1)));
+  const phaseFromFull = Math.abs(180 - moonPhaseAngle);
+  const moonBrightness = Math.pow(10, -0.4 * (3.84 + 0.026 * phaseFromFull + 4e-9 * Math.pow(phaseFromFull, 4)));
+  const moonAirmass = secZenith(m.moonAlt);
+  const targetAirmass = secZenith(m.alt);
+  const scattering = Math.pow(10, 5.36) * (1.06 + Math.pow(Math.cos(rad(m.moonSep)), 2))
+    + Math.pow(10, 6.15 - m.moonSep / 40);
+  const skyNL = moonBrightness
+    * Math.pow(10, -0.4 * kabs * moonAirmass)
+    * (1 - Math.pow(10, -0.4 * kabs * targetAirmass))
+    * scattering;
+  const skyMag = skyNL > 0 ? 22.5 - 1.086 * Math.log(skyNL / 34.08) : NaN;
+  return { skyMag, skyNL, twilightLevel: twilightWarningLevel(m.sunAlt) };
+}
+
+function secZenith(altDeg) {
+  return 1 / Math.max(Math.sin(rad(clamp(altDeg, 0.1, 89.9))), 1e-6);
+}
+
+function twilightWarningLevel(sunAlt) {
+  if (!Number.isFinite(sunAlt) || sunAlt <= -18) return "";
+  if (sunAlt > -6) return "bad";
+  if (sunAlt > -12) return "warn";
+  return "soft";
 }
 
 function targetSortValue(t, key) {
@@ -862,15 +883,25 @@ function moonWarningClass(target) {
 
 function skyWarningClass(m) {
   if (!Number.isFinite(m.skyMag)) return "";
-  if (m.skyMag < 19.5) return "bad";
-  if (m.skyMag < 20.5) return "warn";
-  if (m.skyMag < 21.2) return "soft";
+  if (m.skyMag < 19.0 || m.skyNL > 850) return "bad";
+  if (m.skyMag < 20.0 || m.skyNL > 350) return "warn";
+  if (m.skyMag < 21.5 || m.skyNL > 120) return "soft";
   return "";
 }
 
 function skyCellTitle(m) {
   if (!Number.isFinite(m.skyMag)) return "Sky brightness unavailable";
-  return `Estimated V sky ${fmt(m.skyMag, 2)} mag/arcsec^2; ${fmt(m.skyNL, 0)} nL`;
+  return `Whittle moon-scattered sky ${fmt(m.skyMag, 2)} mag/arcsec^2; ${fmt(m.skyNL, 0)} nL`;
+}
+
+function twilightWarningClass(m) {
+  return m.twilightLevel || "";
+}
+
+function twilightWarningDetail(m) {
+  if (!m.twilightLevel) return "";
+  const label = m.sunAlt > -6 ? "civil/bright twilight" : m.sunAlt > -12 ? "nautical twilight" : "astronomical twilight";
+  return `Sun alt ${fmt(m.sunAlt, 1)} deg: ${label}`;
 }
 
 function cycleStatus(id) {
@@ -920,6 +951,7 @@ function renderSelected() {
     ["ΔT", Number.isFinite(deltaT) ? `${fmt(deltaT, 2)} hr` : ""],
     ["Moon sep.", `${fmt(m.moonSep, 0)} deg`],
     ["Sky V", Number.isFinite(m.skyMag) ? `${fmt(m.skyMag, 1)} mag/arcsec2` : ""],
+    ["Twilight", twilightWarningDetail(m)],
     ["Source", target.source || ""]
   ].map(([k, v]) => `<div><b>${k}</b><span>${escapeHtml(String(v || ""))}</span></div>`).join("");
   els.warningBadges.innerHTML = warningBadgeHtml(target, "full") || `<span class="targetOk">No current flags</span>`;
@@ -958,9 +990,10 @@ function renderDiagnostics() {
     ["Moon alt", `${fmt(m.moonAlt, 1)} deg`],
     ["Sky bright.", Number.isFinite(m.skyMag) ? `${fmt(m.skyMag, 2)} mag/arcsec2` : ""],
     ["Sky nL", Number.isFinite(m.skyNL) ? fmt(m.skyNL, 0) : ""],
+    ["Twilight", twilightWarningDetail(m)],
     ["Parallactic PA", `${fmt(pa, 1)} deg`],
     ["Readme", readme ? (readme.projectId || readme.filename) : "not matched"],
-    ["Formulae", "GMST sidereal, Kasten-Young airmass, elongation Moon phase"]
+    ["Formulae", "GMST sidereal, Kasten-Young airmass, Whittle moon-sky"]
   ];
   els.diagnosticsGrid.innerHTML = rows
     .map(([k, v]) => `<div><b>${escapeHtml(k)}</b><span>${escapeHtml(String(v || ""))}</span></div>`)
@@ -999,6 +1032,15 @@ function targetWarnings(target, includeReadme = false) {
       label: skyLevel === "bad" ? "sky" : "Sky",
       detail: `Sky: ${fmt(m.skyMag, 1)} V mag/arcsec2, ${fmt(m.skyNL, 0)} nL`,
       level: skyLevel
+    });
+  }
+  const twilightLevel = twilightWarningClass(m);
+  if (twilightLevel === "bad" || twilightLevel === "warn") {
+    warnings.push({
+      code: "twilight",
+      label: twilightLevel === "bad" ? "day" : "twil",
+      detail: twilightWarningDetail(m),
+      level: twilightLevel
     });
   }
   if (includeReadme && !findReadmeForTarget(target)) {
