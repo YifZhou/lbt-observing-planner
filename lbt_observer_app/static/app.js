@@ -94,7 +94,7 @@ function applyDefaults() {
 
 function wireEvents() {
   els.dateInput.addEventListener("change", () => {
-    state.meta.date = els.dateInput.value;
+    setSelectedLocalParts(els.dateInput.value, els.timeInput.value);
     renderAndSave();
   });
   els.timeInput.addEventListener("change", () => {
