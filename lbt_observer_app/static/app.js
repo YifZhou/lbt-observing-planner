@@ -753,6 +753,7 @@ function renderTable() {
     tr.addEventListener("click", () => {
       selectedId = target.id;
       renderSelected();
+      renderDiagnostics();
       renderReadme();
       renderPlots();
       renderTable();
