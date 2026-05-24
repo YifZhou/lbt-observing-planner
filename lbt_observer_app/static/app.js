@@ -742,7 +742,7 @@ function renderTable() {
       <td class="coordCell">${escapeHtml(decShort(target))}</td>
       <td>${escapeHtml(target.programName || "")}</td>
       <td class="numericCell"><input class="priorityInput" type="number" step="0.1" value="${target.priority ?? ""}" title="Edit priority"></td>
-      <td class="numericCell warningCell ${haWarningClass(m)}" title="${haWarningTitle(target, m)}">${fmt(m.haHours, 2)}</td>
+      <td class="numericCell" title="${haCellTitle(target, m)}">${fmt(m.haHours, 2)}</td>
       <td class="numericCell">${fmt(Number(target.visitHours), 2)}</td>
       <td class="numericCell warningCell ${deltaTWarningClass(target, m, deltaT)}" title="${deltaTTitle(target, m, deltaT)}">${fmt(deltaT, 2)}</td>
       <td class="numericCell warningCell ${altWarningClass(m)}" title="${altWarningTitle(m)}">${fmt(m.alt)}</td>
@@ -822,7 +822,7 @@ function airmassWarningTitle(m) {
 
 function effectiveHaLimit(target) {
   const explicit = Number(target.haLimitHours);
-  return Number.isFinite(explicit) && explicit > 0 ? explicit : 2;
+  return Number.isFinite(explicit) && explicit > 0 ? explicit : 3;
 }
 
 function targetDeltaTHours(target, m = metricsCache.get(target.id) || {}) {
@@ -836,24 +836,18 @@ function deltaTWarningClass(target, m, deltaT) {
   const limit = effectiveHaLimit(target);
   if (!Number.isFinite(deltaT)) return "";
   if (m.haHours > limit || deltaT < 0) return "bad";
-  if (m.haHours > 2 || m.haHours < -limit || deltaT < 0.5) return "warn";
+  if (deltaT < 0.5) return "warn";
   if (deltaT < 1) return "soft";
   return "";
 }
 
 function deltaTTitle(target, m, deltaT) {
   const limit = effectiveHaLimit(target);
-  return `DeltaT = HA limit ${fmt(limit, 2)} - HA ${fmt(m.haHours, 2)} - visit ${fmt(Number(target.visitHours) || 0, 2)} = ${fmt(deltaT, 2)} hr`;
+  return `ΔT = HA limit ${fmt(limit, 2)} - HA ${fmt(m.haHours, 2)} - visit ${fmt(Number(target.visitHours) || 0, 2)} = ${fmt(deltaT, 2)} hr`;
 }
 
-function haWarningClass(m) {
-  if (!Number.isFinite(m.haHours)) return "";
-  if (m.haHours > 2) return "warn";
-  return "";
-}
-
-function haWarningTitle(target, m) {
-  return `HA ${fmt(m.haHours, 2)} hr; warning threshold +2 hr; target HA limit ${fmt(effectiveHaLimit(target), 2)} hr`;
+function haCellTitle(target, m) {
+  return `HA ${fmt(m.haHours, 2)} hr; ΔT uses HA limit ${fmt(effectiveHaLimit(target), 2)} hr`;
 }
 
 function moonWarningClass(target) {
@@ -922,7 +916,7 @@ function renderSelected() {
     ["Alt / Airmass", `${fmt(m.alt)} deg / ${fmt(m.airmass, 2)}`],
     ["HA", `${fmt(m.haHours, 2)} hr`],
     ["Visit", target.visitHours ? `${fmt(Number(target.visitHours), 2)} hr` : ""],
-    ["DeltaT", Number.isFinite(deltaT) ? `${fmt(deltaT, 2)} hr` : ""],
+    ["ΔT", Number.isFinite(deltaT) ? `${fmt(deltaT, 2)} hr` : ""],
     ["Moon sep.", `${fmt(m.moonSep, 0)} deg`],
     ["Sky V", Number.isFinite(m.skyMag) ? `${fmt(m.skyMag, 1)} mag/arcsec2` : ""],
     ["Source", target.source || ""]
@@ -954,7 +948,7 @@ function renderDiagnostics() {
     ["RA", target.raText || degToHms(target.raDeg)],
     ["Dec", target.decText || degToDms(target.decDeg)],
     ["HA", `${fmt(m.haHours, 3)} hr`],
-    ["DeltaT", Number.isFinite(deltaT) ? `${fmt(deltaT, 3)} hr` : ""],
+    ["ΔT", Number.isFinite(deltaT) ? `${fmt(deltaT, 3)} hr` : ""],
     ["Altitude", `${fmt(m.alt, 2)} deg`],
     ["Azimuth", `${fmt(m.az, 1)} deg`],
     ["Airmass", fmt(m.airmass, 3)],
@@ -985,9 +979,7 @@ function targetWarnings(target, includeReadme = false) {
     warnings.push({ code: "airmass", label: "X>2", detail: `Airmass ${fmt(m.airmass, 2)} above 2.0`, level: m.airmass > 3 ? "bad" : "warn" });
   }
   const haLimit = Number(target.haLimitHours);
-  if (Number.isFinite(m.haHours) && m.haHours > 2) {
-    warnings.push({ code: "ha", label: "HA", detail: `HA ${fmt(m.haHours, 2)} hr exceeds +2 hr`, level: "warn" });
-  } else if (Number.isFinite(haLimit) && haLimit > 0 && Math.abs(m.haHours) > haLimit) {
+  if (Number.isFinite(haLimit) && haLimit > 0 && Math.abs(m.haHours) > haLimit) {
     warnings.push({ code: "ha", label: "HA", detail: `Outside HA limit (${fmt(haLimit, 1)} hr)`, level: "warn" });
   }
   const moon = moonRisk(target);
