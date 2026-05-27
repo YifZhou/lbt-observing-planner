@@ -96,6 +96,11 @@ function applyDefaults() {
     t.observedAt ||= "";
     if (t.manualOrder == null) t.manualOrder = idx;
   });
+  if (!state.sequence.length) {
+    state.meta.sequenceStartUtc = "";
+  } else if (!validSequenceStart(state.meta.sequenceStartUtc)) {
+    state.meta.sequenceStartUtc = selectedUtc().toISOString();
+  }
   selectedId ||= visibleTargets()[0]?.id || state.targets[0]?.id || "";
 }
 
@@ -187,6 +192,7 @@ function wireEvents() {
   });
   els.clearSequenceBtn.addEventListener("click", () => {
     state.sequence = [];
+    state.meta.sequenceStartUtc = "";
     renderAndSave();
   });
   els.readmeSelect.addEventListener("change", () => {
@@ -269,7 +275,11 @@ function toggleSelectedQueue() {
   if (!selectedId) return;
   if (state.sequence.includes(selectedId)) {
     state.sequence = state.sequence.filter((id) => id !== selectedId);
+    if (!state.sequence.length) state.meta.sequenceStartUtc = "";
   } else {
+    if (!state.sequence.length || !validSequenceStart(state.meta.sequenceStartUtc)) {
+      state.meta.sequenceStartUtc = selectedUtc().toISOString();
+    }
     state.sequence.push(selectedId);
   }
   renderAndSave();
@@ -352,6 +362,18 @@ function getTarget(id) {
 function selectedUtc() {
   const local = state.meta.selectedLocalTime || `${state.meta.date}T00:00`;
   return zonedLocalToUtc(local, state.meta.timezone);
+}
+
+function validSequenceStart(value) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function sequenceStartUtc() {
+  if (!state.sequence.length) return selectedUtc();
+  if (!validSequenceStart(state.meta.sequenceStartUtc)) {
+    state.meta.sequenceStartUtc = selectedUtc().toISOString();
+  }
+  return new Date(state.meta.sequenceStartUtc);
 }
 
 function zonedLocalToUtc(localText, zone) {
@@ -1299,6 +1321,7 @@ function drawSequenceTimeline() {
   fillCanvas(ctx, w, h);
   const pad = { l: 8, r: 8, t: 22, b: 30 };
   const base = selectedUtc();
+  const sequenceBase = sequenceStartUtc();
   const start = lbtNightWindowStart(base);
   const end = new Date(start.getTime() + ALT_PLOT_HOURS * 3600 * 1000);
   const plotW = w - pad.l - pad.r;
@@ -1315,7 +1338,7 @@ function drawSequenceTimeline() {
   ctx.lineTo(xNow, pad.t + plotH);
   ctx.stroke();
   ctx.globalAlpha = 1;
-  let cursor = new Date(base);
+  let cursor = new Date(sequenceBase);
   const queued = state.sequence.map(getTarget).filter(Boolean);
   if (!queued.length) {
     ctx.fillStyle = "#91a1aa";
@@ -1380,10 +1403,10 @@ function sequenceAction(idx, action) {
   if (action === "up" && idx > 0) [state.sequence[idx - 1], state.sequence[idx]] = [state.sequence[idx], state.sequence[idx - 1]];
   if (action === "down" && idx < state.sequence.length - 1) [state.sequence[idx + 1], state.sequence[idx]] = [state.sequence[idx], state.sequence[idx + 1]];
   if (action === "remove") state.sequence.splice(idx, 1);
-    if (action === "done") {
-      updateTarget(id, { status: "observed", observedAt: new Date().toISOString() }, false);
-      state.sequence.splice(idx, 1);
+  if (action === "done") {
+    updateTarget(id, { status: "observed", observedAt: new Date().toISOString() }, false);
   }
+  if (!state.sequence.length) state.meta.sequenceStartUtc = "";
   renderAndSave();
 }
 
@@ -1620,6 +1643,7 @@ function drawLargeSequenceTimeline(ctx, w, h) {
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
   const base = selectedUtc();
+  const sequenceBase = sequenceStartUtc();
   const start = lbtNightWindowStart(base);
   const end = new Date(start.getTime() + ALT_PLOT_HOURS * 3600 * 1000);
   const plotStartMs = start.getTime();
@@ -1660,7 +1684,7 @@ function drawLargeSequenceTimeline(ctx, w, h) {
   const rowCount = Math.max(queued.length, 4);
   const rowH = clamp((plotH - 16) / rowCount, 22, 44);
   const barH = Math.min(28, Math.max(14, rowH * 0.64));
-  let cursor = new Date(base);
+  let cursor = new Date(sequenceBase);
   queued.forEach((target, idx) => {
     const visitHours = Math.max(0.08, Number(target.visitHours) || 0.25);
     const visitStart = cursor;
@@ -2845,6 +2869,7 @@ function updateTarget(id, patch, doRender = true) {
   Object.assign(target, patch);
   if (patch.status !== undefined && ["observed", "done", "skip"].includes(String(patch.status).toLowerCase())) {
     state.sequence = state.sequence.filter((x) => x !== id);
+    if (!state.sequence.length) state.meta.sequenceStartUtc = "";
   }
   if (doRender) renderAndSave();
 }
@@ -2853,6 +2878,7 @@ function makeStatusExport() {
   return {
     kind: "lbt-status-exchange",
     exportedAt: new Date().toISOString(),
+    sequenceStartUtc: state.meta.sequenceStartUtc || "",
     manualTargets: state.targets.filter((t) => t.source === "manual").map((t) => ({ ...t })),
     statuses: state.targets.map((t) => ({
       id: t.id,
@@ -2899,6 +2925,9 @@ function importJson(data) {
     if (Array.isArray(data.manualTargets)) {
       state.targets = mergeByIdentity([...state.targets, ...data.manualTargets.map((t) => ({ ...t, source: "manual" }))]);
     }
+    if (validSequenceStart(data.sequenceStartUtc)) {
+      state.meta.sequenceStartUtc = data.sequenceStartUtc;
+    }
     const rows = data.statuses || [];
     rows.forEach((row) => {
       const target = state.targets.find((t) => t.id === row.id) || state.targets.find((t) =>
@@ -2919,6 +2948,10 @@ function importJson(data) {
         target.status = "";
       }
     });
+    if (!state.sequence.length) state.meta.sequenceStartUtc = "";
+    if (state.sequence.length && !validSequenceStart(state.meta.sequenceStartUtc)) {
+      state.meta.sequenceStartUtc = selectedUtc().toISOString();
+    }
     return;
   }
   if (Array.isArray(data.targets)) {
