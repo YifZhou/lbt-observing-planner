@@ -31,7 +31,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   [
     "dateInput", "timeInput", "timeSlider", "timeMinusBtn", "timePlusBtn", "utTime", "lbtLocalTime", "observerLocalTime", "zoneInput", "nowBtn", "saveBtn", "rebuildBtn",
     "instrumentTabs", "searchInput", "statusFilter", "flagFilter", "targetLimit", "upOnly", "hideDone", "manualTargetBtn",
-    "nightStats", "summaryCards", "altCanvas", "altAzCanvas", "skyCanvas", "targetTable",
+    "nightStats", "summaryCards", "altCanvas", "altTargetsModeBtn", "altSequenceModeBtn", "altAzCanvas", "skyCanvas", "targetTable",
     "targetCount", "plotTargetLabel", "selectedTitle", "selectedMeta", "warningBadges", "diagnosticsGrid",
     "queueBtn", "notesBox", "sequenceList", "clearSequenceBtn",
     "readmeSelect", "readmeSummary", "readmeText", "stateStamp",
@@ -76,6 +76,7 @@ function applyDefaults() {
   state.meta.timezone ||= "UTC";
   state.meta.selectedLocalTime ||= now.toISOString().slice(0, 16);
   state.meta.activeView ||= "planner";
+  state.meta.altitudeMode ||= "targets";
   if (!state.meta.sortKey || state.meta.sortKey === "score") {
     state.meta.sortKey = "priority";
     state.meta.sortDir = "asc";
@@ -141,6 +142,8 @@ function wireEvents() {
   els.targetsViewBtn.addEventListener("click", () => setView("planner"));
   els.atmViewBtn.addEventListener("click", () => setView("atmdisp"));
   els.readmesViewBtn.addEventListener("click", () => setView("readmes"));
+  els.altTargetsModeBtn.addEventListener("click", () => setAltitudeMode("targets"));
+  els.altSequenceModeBtn.addEventListener("click", () => setAltitudeMode("sequence"));
   els.searchInput.addEventListener("input", render);
   els.statusFilter.addEventListener("change", render);
   els.flagFilter.addEventListener("change", render);
@@ -319,6 +322,11 @@ function targetInstruments() {
 
 function setView(view) {
   state.meta.activeView = view;
+  renderAndSave();
+}
+
+function setAltitudeMode(mode) {
+  state.meta.altitudeMode = mode === "sequence" ? "sequence" : "targets";
   renderAndSave();
 }
 
@@ -1288,7 +1296,7 @@ function drawSequenceTimeline() {
   if (!canvas) return;
   const { ctx, w, h } = setupCanvas(canvas);
   fillCanvas(ctx, w, h);
-  const pad = { l: 42, r: 10, t: 16, b: 28 };
+  const pad = { l: 8, r: 8, t: 22, b: 30 };
   const base = selectedUtc();
   const start = lbtNightWindowStart(base);
   const end = new Date(start.getTime() + ALT_PLOT_HOURS * 3600 * 1000);
@@ -1327,7 +1335,8 @@ function drawSequenceTimeline() {
     ctx.fillStyle = "#edf4f7";
     ctx.font = "11px system-ui";
     const label = `${idx + 1}. ${target.targetName}`;
-    ctx.fillText(label, Math.min(x0 + 4, w - pad.r - ctx.measureText(label).width), y0 + 11);
+    const labelX = clamp(x0 + 4, pad.l + 3, w - pad.r - ctx.measureText(label).width - 3);
+    ctx.fillText(label, labelX, y0 + 11);
     cursor = next;
   });
   ctx.fillStyle = "#91a1aa";
@@ -1335,12 +1344,13 @@ function drawSequenceTimeline() {
   for (let step = 0; step <= ALT_PLOT_HOURS; step += 2) {
     const tick = new Date(start.getTime() + step * 3600 * 1000);
     const x = pad.l + step / ALT_PLOT_HOURS * plotW;
-    ctx.fillText(localPartsFromUtc(tick, state.meta.timezone).time.slice(0, 5), x - 12, h - 8);
+    const label = localPartsFromUtc(tick, state.meta.timezone).time.slice(0, 5);
+    ctx.fillText(label, clamp(x - 12, pad.l + 2, w - pad.r - ctx.measureText(label).width - 2), h - 8);
   }
   const total = queued.reduce((sum, t) => sum + (Number(t.visitHours) || 0), 0);
   ctx.fillStyle = "#c9d7de";
   ctx.font = "12px system-ui";
-  ctx.fillText(`${queued.length} targets / ${fmt(total, 2)} hr`, pad.l, 12);
+  ctx.fillText(`${queued.length} targets / ${fmt(total, 2)} hr`, pad.l + 4, 15);
 }
 
 function drawMiniTwilightBands(ctx, pad, w, h, start) {
@@ -1524,15 +1534,25 @@ function drawAltitudePlot() {
   const canvas = els.altCanvas;
   const { ctx, w, h } = setupCanvas(canvas);
   fillCanvas(ctx, w, h);
+  const mode = state.meta.altitudeMode === "sequence" ? "sequence" : "targets";
+  els.altTargetsModeBtn.classList.toggle("active", mode === "targets");
+  els.altSequenceModeBtn.classList.toggle("active", mode === "sequence");
   const pad = { l: 50, r: 18, t: 24, b: 40 };
   const base = selectedUtc();
   const start = lbtNightWindowStart(base);
   drawTwilightBands(ctx, pad, w, h, start);
   drawGrid(ctx, pad, w, h);
   const queued = state.sequence.map(getTarget).filter(Boolean);
-  const targets = uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
+  const targets = mode === "sequence"
+    ? queued
+    : uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
   const selected = getTarget(selectedId);
-  if (selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
+  if (mode === "targets" && selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
+  if (mode === "sequence" && !targets.length) {
+    ctx.fillStyle = "#91a1aa";
+    ctx.font = "15px system-ui";
+    ctx.fillText("Queue empty", pad.l + 12, pad.t + 34);
+  }
   targets.forEach((target) => {
     if (target.raDeg == null || target.decDeg == null) return;
     const isSelected = target.id === selectedId;
@@ -1586,13 +1606,15 @@ function drawAltitudePlot() {
     }
   }
   ctx.fillStyle = "rgba(237,244,247,0.72)";
-  ctx.fillText("selected: white halo; queued: blue halo/dash", pad.l + 8, pad.t + 34);
+  ctx.fillText(mode === "sequence" ? "queued sequence only" : "selected: white halo; queued: blue halo/dash", pad.l + 8, pad.t + 34);
   ctx.fillStyle = "#91a1aa";
   ctx.font = "13px system-ui";
   const xLabel = `Time (${timezoneLabel(state.meta.timezone)})`;
   const xLabelWidth = ctx.measureText(xLabel).width;
   ctx.fillText(xLabel, pad.l + (w - pad.l - pad.r - xLabelWidth) / 2, h - 2);
-  els.plotTargetLabel.textContent = selected ? `${selected.targetName}; queued ${state.sequence.length}` : "";
+  els.plotTargetLabel.textContent = mode === "sequence"
+    ? `${state.sequence.length} queued`
+    : selected ? `${selected.targetName}; queued ${state.sequence.length}` : "";
 }
 
 function timezoneLabel(zone) {
