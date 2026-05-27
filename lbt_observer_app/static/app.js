@@ -149,6 +149,9 @@ function wireEvents() {
   els.readmesViewBtn.addEventListener("click", () => setView("readmes"));
   els.altTargetsModeBtn.addEventListener("click", () => setAltitudeMode("targets"));
   els.altSequenceModeBtn.addEventListener("click", () => setAltitudeMode("sequence"));
+  els.altCanvas.addEventListener("click", handleAltitudeCanvasClick);
+  els.altAzCanvas.addEventListener("click", handleAltAzCanvasClick);
+  els.skyCanvas.addEventListener("click", handleSkyCanvasClick);
   els.searchInput.addEventListener("input", render);
   els.statusFilter.addEventListener("change", render);
   els.flagFilter.addEventListener("change", render);
@@ -1710,6 +1713,7 @@ function drawLargeSequenceTimeline(ctx, w, h) {
     ctx.fillStyle = "#edf4f7";
     ctx.fillText(label, labelX, y + barH * 0.68);
   });
+  drawActiveSequenceAltitude(ctx, queued, sequenceBase, base, start, pad, w, h);
   const total = queued.reduce((sum, target) => sum + (Number(target.visitHours) || 0), 0);
   ctx.fillStyle = "#c9d7de";
   ctx.font = "14px system-ui";
@@ -1718,6 +1722,204 @@ function drawLargeSequenceTimeline(ctx, w, h) {
   ctx.font = "13px system-ui";
   const xLabel = `Time (${timezoneLabel(state.meta.timezone)})`;
   ctx.fillText(xLabel, pad.l + (plotW - ctx.measureText(xLabel).width) / 2, h - 2);
+}
+
+function drawActiveSequenceAltitude(ctx, queued, sequenceBase, base, plotStart, pad, w, h) {
+  const active = activeSequenceEntry(queued, sequenceBase, base);
+  if (!active || active.target.raDeg == null || active.target.decDeg == null) return;
+  const track = altitudeTrack(active.target, plotStart);
+  const denom = Math.max(track.length - 1, 1);
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  ctx.strokeStyle = priorityColor(active.target);
+  ctx.lineWidth = 1.6;
+  ctx.globalAlpha = 0.86;
+  ctx.setLineDash([7, 6]);
+  ctx.beginPath();
+  track.forEach((alt, i) => {
+    const x = pad.l + i / denom * plotW;
+    const y = pad.t + (1 - clamp(alt, 0, 90) / 90) * plotH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "rgba(237,244,247,0.78)";
+  ctx.font = "12px system-ui";
+  ctx.fillText(`dashed: ${active.index + 1}. ${active.target.targetName} altitude`, pad.l + 8, pad.t + 18);
+}
+
+function activeSequenceEntry(queued, sequenceBase, date) {
+  let cursor = new Date(sequenceBase);
+  for (let idx = 0; idx < queued.length; idx++) {
+    const target = queued[idx];
+    const visitHours = Math.max(0.08, Number(target.visitHours) || 0.25);
+    const next = new Date(cursor.getTime() + visitHours * 3600 * 1000);
+    if (date >= cursor && date <= next) {
+      return { target, index: idx, start: cursor, end: next };
+    }
+    cursor = next;
+  }
+  return null;
+}
+
+function handleAltitudeCanvasClick(event) {
+  const point = canvasPoint(event, els.altCanvas);
+  const mode = state.meta.altitudeMode === "sequence" ? "sequence" : "targets";
+  const targetId = mode === "sequence" ? hitSequenceTimeline(point, els.altCanvas) : hitAltitudePlot(point, els.altCanvas);
+  selectPlotTarget(targetId);
+}
+
+function handleAltAzCanvasClick(event) {
+  selectPlotTarget(hitAltAzPlot(canvasPoint(event, els.altAzCanvas), els.altAzCanvas));
+}
+
+function handleSkyCanvasClick(event) {
+  selectPlotTarget(hitSkyPlot(canvasPoint(event, els.skyCanvas), els.skyCanvas));
+}
+
+function selectPlotTarget(id) {
+  const target = id ? getTarget(id) : null;
+  if (!target) return;
+  selectedId = target.id;
+  if (target.instrument) state.meta.activeInstrument = target.instrument;
+  render();
+}
+
+function canvasPoint(event, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+}
+
+function plotTargetsForClick(limit = 14) {
+  const queued = state.sequence.map(getTarget).filter(Boolean);
+  const targets = uniqueTargets([...queued, ...visibleTargets().slice(0, limit)]);
+  const selected = getTarget(selectedId);
+  if (selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
+  return targets;
+}
+
+function hitSequenceTimeline(point, canvas) {
+  const { w, h } = canvasCssSize(canvas);
+  const pad = { l: 50, r: 18, t: 42, b: 44 };
+  const plotW = w - pad.l - pad.r;
+  const plotH = h - pad.t - pad.b;
+  const base = selectedUtc();
+  const sequenceBase = sequenceStartUtc();
+  const start = lbtNightWindowStart(base);
+  const plotStartMs = start.getTime();
+  const plotEndMs = plotStartMs + ALT_PLOT_HOURS * 3600 * 1000;
+  const queued = state.sequence.map(getTarget).filter(Boolean);
+  const rowCount = Math.max(queued.length, 4);
+  const rowH = clamp((plotH - 16) / rowCount, 22, 44);
+  const barH = Math.min(28, Math.max(14, rowH * 0.64));
+  let cursor = new Date(sequenceBase);
+  for (let idx = 0; idx < queued.length; idx++) {
+    const target = queued[idx];
+    const visitHours = Math.max(0.08, Number(target.visitHours) || 0.25);
+    const visitStart = cursor;
+    const visitEnd = new Date(cursor.getTime() + visitHours * 3600 * 1000);
+    cursor = visitEnd;
+    if (visitEnd.getTime() < plotStartMs || visitStart.getTime() > plotEndMs) continue;
+    const x0 = pad.l + ((clamp(visitStart.getTime(), plotStartMs, plotEndMs) - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
+    const x1 = pad.l + ((clamp(visitEnd.getTime(), plotStartMs, plotEndMs) - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
+    const y = pad.t + 10 + idx * rowH;
+    if (point.x >= x0 - 6 && point.x <= x1 + 6 && point.y >= y - 5 && point.y <= y + barH + 5) return target.id;
+  }
+  return "";
+}
+
+function hitAltitudePlot(point, canvas) {
+  const { w, h } = canvasCssSize(canvas);
+  const pad = { l: 50, r: 18, t: 24, b: 40 };
+  const start = lbtNightWindowStart(selectedUtc());
+  let best = { id: "", dist: Infinity };
+  plotTargetsForClick(14).forEach((target) => {
+    if (target.raDeg == null || target.decDeg == null) return;
+    const track = altitudeTrack(target, start);
+    const denom = Math.max(track.length - 1, 1);
+    let last = null;
+    track.forEach((alt, i) => {
+      const p = {
+        x: pad.l + i / denom * (w - pad.l - pad.r),
+        y: pad.t + (1 - clamp(alt, 0, 90) / 90) * (h - pad.t - pad.b)
+      };
+      if (last) best = nearerHit(best, target.id, pointSegmentDistance(point, last, p));
+      last = p;
+    });
+  });
+  return best.dist <= 10 ? best.id : "";
+}
+
+function hitAltAzPlot(point, canvas) {
+  const { w, h } = canvasCssSize(canvas);
+  const pad = { l: 42, r: 14, t: 26, b: 34 };
+  const start = lbtNightWindowStart(selectedUtc());
+  const sequenceMode = state.meta.altitudeMode === "sequence";
+  const targets = sequenceMode ? state.sequence.map(getTarget).filter(Boolean) : plotTargetsForClick(14);
+  let best = { id: "", dist: Infinity };
+  targets.forEach((target) => {
+    if (target.raDeg == null || target.decDeg == null) return;
+    const metric = metricsCache.get(target.id) || {};
+    if (Number.isFinite(metric.az) && Number.isFinite(metric.alt)) {
+      const marker = { x: altAzX(metric.az, pad, w), y: altAzY(Math.max(0, metric.alt), pad, h) };
+      best = nearerHit(best, target.id, distance(point, marker));
+    }
+    const raw = altAzTrack(target, start);
+    let last = null;
+    raw.forEach((pos) => {
+      const p = pos.alt > 0 ? { az: mod(pos.az, 360), x: altAzX(pos.az, pad, w), y: altAzY(pos.alt, pad, h) } : null;
+      if (p && last && Math.abs(p.az - last.az) <= 180) {
+        best = nearerHit(best, target.id, pointSegmentDistance(point, last, p));
+      }
+      last = p;
+    });
+  });
+  return best.dist <= 13 ? best.id : "";
+}
+
+function hitSkyPlot(point, canvas) {
+  const { w, h } = canvasCssSize(canvas);
+  const cx = w / 2;
+  const cy = h / 2 + 8;
+  const r = Math.min(w, h) * 0.42;
+  const targets = uniqueTargets([...state.sequence.map(getTarget).filter(Boolean), ...visibleTargets().slice(0, 80)]);
+  let best = { id: "", dist: Infinity };
+  targets.forEach((target) => {
+    const m = metricsCache.get(target.id) || {};
+    const isQueued = state.sequence.includes(target.id);
+    if (!Number.isFinite(m.alt) || (!isQueued && m.alt <= 0)) return;
+    const rr = r * (1 - clamp(m.alt, 0, 90) / 90);
+    const theta = rad(m.az);
+    const p = { x: cx - rr * Math.sin(theta), y: cy - rr * Math.cos(theta) };
+    best = nearerHit(best, target.id, distance(point, p));
+  });
+  return best.dist <= 14 ? best.id : "";
+}
+
+function canvasCssSize(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    w: Math.max(320, Math.round(rect.width || canvas.clientWidth || canvas.width)),
+    h: Math.max(220, Math.round(rect.height || canvas.clientHeight || canvas.height))
+  };
+}
+
+function nearerHit(best, id, dist) {
+  return dist < best.dist ? { id, dist } : best;
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function pointSegmentDistance(p, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 <= 0) return distance(p, a);
+  const t = clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / len2, 0, 1);
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
 
 function timezoneLabel(zone) {
@@ -1956,9 +2158,10 @@ function drawAltAzPlot() {
   const base = selectedUtc();
   const start = lbtNightWindowStart(base);
   const queued = state.sequence.map(getTarget).filter(Boolean);
-  const targets = uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
+  const sequenceMode = state.meta.altitudeMode === "sequence";
+  const targets = sequenceMode ? queued : uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
   const selected = getTarget(selectedId);
-  if (selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
+  if (!sequenceMode && selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
 
   ctx.strokeStyle = "#273443";
   ctx.fillStyle = "#91a1aa";
@@ -1994,19 +2197,27 @@ function drawAltAzPlot() {
     const isQueued = state.sequence.includes(target.id);
     drawAltAzTrack(ctx, target, start, pad, w, h, priorityColor(target), isSelected ? 3.8 : isQueued ? 2.8 : 1.5, isQueued && !isSelected ? [8, 6] : []);
     const m = metricsCache.get(target.id) || {};
-    if (Number.isFinite(m.alt) && m.alt > 0) {
+    if (Number.isFinite(m.alt) && (m.alt > 0 || (isQueued && sequenceMode))) {
       const x = altAzX(m.az, pad, w);
-      const y = altAzY(m.alt, pad, h);
+      const y = altAzY(Math.max(0, m.alt), pad, h);
       ctx.fillStyle = priorityColor(target);
+      ctx.globalAlpha = m.alt > 0 ? 1 : 0.42;
       ctx.beginPath();
       ctx.arc(x, y, isSelected ? 5.5 : isQueued ? 4.5 : 3, 0, Math.PI * 2);
       ctx.fill();
+      ctx.globalAlpha = 1;
       if (isSelected) {
         ctx.strokeStyle = "rgba(255,255,255,0.45)";
         ctx.lineWidth = 5;
         ctx.beginPath();
         ctx.arc(x, y, 10, 0, Math.PI * 2);
         ctx.stroke();
+      }
+      if (sequenceMode && isQueued) {
+        const seqIdx = state.sequence.indexOf(target.id);
+        ctx.fillStyle = "#edf4f7";
+        ctx.font = "11px system-ui";
+        ctx.fillText(String(seqIdx + 1), Math.min(x + 6, w - pad.r - 10), Math.max(y - 6, pad.t + 12));
       }
     }
   });
@@ -2131,14 +2342,19 @@ function drawSkyPlot() {
   [["N", 0, -1], ["E", -1, 0], ["S", 0, 1], ["W", 1, 0]].forEach(([lab, dx, dy]) => {
     ctx.fillText(lab, cx + dx * (r + 10) - 4, cy + dy * (r + 14) + 4);
   });
-  const skyPoint = (target) => {
+  const skyPoint = (target, options = {}) => {
     const m = metricsCache.get(target.id) || {};
-    if (!Number.isFinite(m.alt) || m.alt <= 0) return null;
-    const rr = r * (1 - m.alt / 90);
+    if (!Number.isFinite(m.alt) || (!options.includeBelow && m.alt <= 0)) return null;
+    const plottedAlt = options.includeBelow ? clamp(m.alt, 0, 90) : m.alt;
+    const rr = r * (1 - plottedAlt / 90);
     const theta = rad(m.az);
-    return { x: cx - rr * Math.sin(theta), y: cy - rr * Math.cos(theta), target };
+    return { x: cx - rr * Math.sin(theta), y: cy - rr * Math.cos(theta), target, below: m.alt <= 0 };
   };
-  const sequencePoints = state.sequence.map(getTarget).filter(Boolean).map(skyPoint).filter(Boolean);
+  const sequencePoints = state.sequence.map((id, idx) => {
+    const target = getTarget(id);
+    const point = target ? skyPoint(target, { includeBelow: true }) : null;
+    return point ? { ...point, sequenceIndex: idx } : null;
+  }).filter(Boolean);
   if (sequencePoints.length > 1) {
     ctx.strokeStyle = "rgba(120,174,247,0.82)";
     ctx.lineWidth = 2.5;
@@ -2171,17 +2387,19 @@ function drawSkyPlot() {
     }
   });
   drawMoonSkyMarker(ctx, cx, cy, r);
-  sequencePoints.forEach((p, idx) => {
+  sequencePoints.forEach((p) => {
     ctx.fillStyle = "#071014";
-    ctx.strokeStyle = priorityColor(p.target);
+    ctx.globalAlpha = p.below ? 0.48 : 1;
+    ctx.strokeStyle = p.below ? "rgba(145,161,170,0.95)" : priorityColor(p.target);
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = "#edf4f7";
     ctx.font = "11px system-ui";
-    const label = String(idx + 1);
+    const label = String(p.sequenceIndex + 1);
     ctx.fillText(label, p.x - ctx.measureText(label).width / 2, p.y + 4);
   });
 }
