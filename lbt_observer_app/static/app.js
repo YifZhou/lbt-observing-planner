@@ -1656,6 +1656,15 @@ function drawLargeSequenceTimeline(ctx, w, h) {
   ctx.strokeStyle = "#273443";
   ctx.lineWidth = 1;
   ctx.strokeRect(pad.l, pad.t, plotW, plotH);
+  const y30 = pad.t + (1 - 30 / 90) * plotH;
+  ctx.strokeStyle = "rgba(242,184,75,0.78)";
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  ctx.moveTo(pad.l, y30);
+  ctx.lineTo(pad.l + plotW, y30);
+  ctx.stroke();
+  ctx.setLineDash([]);
   for (let step = 0; step <= ALT_PLOT_HOURS; step += 1) {
     const x = pad.l + step / ALT_PLOT_HOURS * plotW;
     ctx.strokeStyle = step % 2 === 0 ? "rgba(120,145,156,0.25)" : "rgba(120,145,156,0.12)";
@@ -1744,9 +1753,6 @@ function drawActiveSequenceAltitude(ctx, queued, sequenceBase, base, plotStart, 
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.globalAlpha = 1;
-  ctx.fillStyle = "rgba(237,244,247,0.78)";
-  ctx.font = "12px system-ui";
-  ctx.fillText(`dashed: ${active.index + 1}. ${active.target.targetName} altitude`, pad.l + 8, pad.t + 18);
 }
 
 function activeSequenceEntry(queued, sequenceBase, date) {
