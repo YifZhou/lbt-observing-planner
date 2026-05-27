@@ -1538,22 +1538,21 @@ function drawAltitudePlot() {
   const mode = state.meta.altitudeMode === "sequence" ? "sequence" : "targets";
   els.altTargetsModeBtn.classList.toggle("active", mode === "targets");
   els.altSequenceModeBtn.classList.toggle("active", mode === "sequence");
+  const queued = state.sequence.map(getTarget).filter(Boolean);
+  if (mode === "sequence") {
+    drawLargeSequenceTimeline(ctx, w, h);
+    const sequenceHours = queued.reduce((sum, target) => sum + (Number(target.visitHours) || 0), 0);
+    els.plotTargetLabel.textContent = `${state.sequence.length} queued / ${fmt(sequenceHours, 2)} hr`;
+    return;
+  }
   const pad = { l: 50, r: 18, t: 24, b: 40 };
   const base = selectedUtc();
   const start = lbtNightWindowStart(base);
   drawTwilightBands(ctx, pad, w, h, start);
   drawGrid(ctx, pad, w, h);
-  const queued = state.sequence.map(getTarget).filter(Boolean);
-  const targets = mode === "sequence"
-    ? queued
-    : uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
+  const targets = uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
   const selected = getTarget(selectedId);
-  if (mode === "targets" && selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
-  if (mode === "sequence" && !targets.length) {
-    ctx.fillStyle = "#91a1aa";
-    ctx.font = "15px system-ui";
-    ctx.fillText("Queue empty", pad.l + 12, pad.t + 34);
-  }
+  if (selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
   targets.forEach((target) => {
     if (target.raDeg == null || target.decDeg == null) return;
     const isSelected = target.id === selectedId;
@@ -1581,7 +1580,6 @@ function drawAltitudePlot() {
       ctx.fillText(target.targetName, lx, y - 8);
     }
   });
-  if (mode === "sequence") drawSequenceVisitTracks(ctx, targets, start, base, pad, w, h);
   drawMoonAltitude(ctx, start, base, pad, w, h);
   ctx.setLineDash([]);
   const xNow = pad.l + ((base - start) / (ALT_PLOT_HOURS * 3600 * 1000)) * (w - pad.l - pad.r);
@@ -1608,87 +1606,94 @@ function drawAltitudePlot() {
     }
   }
   ctx.fillStyle = "rgba(237,244,247,0.72)";
-  ctx.fillText(mode === "sequence" ? "thick segments mark scheduled visit length" : "selected: white halo; queued: blue halo/dash", pad.l + 8, pad.t + 34);
+  ctx.fillText("selected: white halo; queued: blue halo/dash", pad.l + 8, pad.t + 34);
   ctx.fillStyle = "#91a1aa";
   ctx.font = "13px system-ui";
   const xLabel = `Time (${timezoneLabel(state.meta.timezone)})`;
   const xLabelWidth = ctx.measureText(xLabel).width;
   ctx.fillText(xLabel, pad.l + (w - pad.l - pad.r - xLabelWidth) / 2, h - 2);
-  const sequenceHours = queued.reduce((sum, target) => sum + (Number(target.visitHours) || 0), 0);
-  els.plotTargetLabel.textContent = mode === "sequence"
-    ? `${state.sequence.length} queued / ${fmt(sequenceHours, 2)} hr`
-    : selected ? `${selected.targetName}; queued ${state.sequence.length}` : "";
+  els.plotTargetLabel.textContent = selected ? `${selected.targetName}; queued ${state.sequence.length}` : "";
 }
 
-function drawSequenceVisitTracks(ctx, targets, start, base, pad, w, h) {
+function drawLargeSequenceTimeline(ctx, w, h) {
+  const pad = { l: 50, r: 18, t: 42, b: 44 };
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
+  const base = selectedUtc();
+  const start = lbtNightWindowStart(base);
+  const end = new Date(start.getTime() + ALT_PLOT_HOURS * 3600 * 1000);
   const plotStartMs = start.getTime();
-  const plotEndMs = plotStartMs + ALT_PLOT_HOURS * 3600 * 1000;
+  const plotEndMs = end.getTime();
+  const queued = state.sequence.map(getTarget).filter(Boolean);
+  drawMiniTwilightBands(ctx, pad, w, h, start);
+  ctx.strokeStyle = "#273443";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pad.l, pad.t, plotW, plotH);
+  for (let step = 0; step <= ALT_PLOT_HOURS; step += 1) {
+    const x = pad.l + step / ALT_PLOT_HOURS * plotW;
+    ctx.strokeStyle = step % 2 === 0 ? "rgba(120,145,156,0.25)" : "rgba(120,145,156,0.12)";
+    ctx.beginPath();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, pad.t + plotH);
+    ctx.stroke();
+    const tick = new Date(plotStartMs + step * 3600 * 1000);
+    const label = localPartsFromUtc(tick, state.meta.timezone).time.slice(0, 5);
+    ctx.fillStyle = "#91a1aa";
+    ctx.font = "13px system-ui";
+    ctx.fillText(label, clamp(x - 14, pad.l + 2, w - pad.r - ctx.measureText(label).width - 2), h - 14);
+  }
+  const xForTime = (date) => pad.l + clamp((date - start) / (plotEndMs - plotStartMs), 0, 1) * plotW;
+  const xNow = xForTime(base);
+  ctx.strokeStyle = "#edf4f7";
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.75;
+  ctx.beginPath();
+  ctx.moveTo(xNow, pad.t);
+  ctx.lineTo(xNow, pad.t + plotH);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  if (!queued.length) {
+    ctx.fillStyle = "#91a1aa";
+    ctx.font = "18px system-ui";
+    ctx.fillText("Queue empty", pad.l + 16, pad.t + 38);
+  }
+  const rowCount = Math.max(queued.length, 4);
+  const rowH = clamp((plotH - 16) / rowCount, 22, 44);
+  const barH = Math.min(28, Math.max(14, rowH * 0.64));
   let cursor = new Date(base);
-  targets.forEach((target, idx) => {
+  queued.forEach((target, idx) => {
     const visitHours = Math.max(0.08, Number(target.visitHours) || 0.25);
     const visitStart = cursor;
     const visitEnd = new Date(cursor.getTime() + visitHours * 3600 * 1000);
     cursor = visitEnd;
-    if (target.raDeg == null || target.decDeg == null) return;
     if (visitEnd.getTime() < plotStartMs || visitStart.getTime() > plotEndMs) return;
     const clippedStart = new Date(clamp(visitStart.getTime(), plotStartMs, plotEndMs));
     const clippedEnd = new Date(clamp(visitEnd.getTime(), plotStartMs, plotEndMs));
-    const color = priorityColor(target);
     const x0 = pad.l + ((clippedStart.getTime() - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
     const x1 = pad.l + ((clippedEnd.getTime() - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
+    const y = pad.t + 10 + idx * rowH;
+    const color = priorityColor(target);
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.08;
-    ctx.fillRect(x0, pad.t, Math.max(2, x1 - x0), plotH);
+    ctx.globalAlpha = 0.88;
+    ctx.fillRect(x0, y, Math.max(4, x1 - x0), barH);
     ctx.globalAlpha = 1;
-    drawAltVisitSegment(ctx, target, clippedStart, clippedEnd, start, pad, w, h, "rgba(255,255,255,0.26)", 10);
-    drawAltVisitSegment(ctx, target, clippedStart, clippedEnd, start, pad, w, h, color, 5);
-    drawVisitLabel(ctx, target, idx, clippedStart, clippedEnd, start, pad, w, h, visitHours, color);
+    ctx.strokeStyle = "rgba(255,255,255,0.32)";
+    ctx.strokeRect(x0, y, Math.max(4, x1 - x0), barH);
+    const label = `${idx + 1}. ${target.targetName}  ${fmt(visitHours, 2)} hr`;
+    ctx.font = `${barH >= 22 ? 13 : 11}px system-ui`;
+    const labelWidth = ctx.measureText(label).width;
+    const labelX = clamp(x0 + 7, pad.l + 5, w - pad.r - labelWidth - 5);
+    ctx.fillStyle = "#edf4f7";
+    ctx.fillText(label, labelX, y + barH * 0.68);
   });
-}
-
-function drawAltVisitSegment(ctx, target, visitStart, visitEnd, plotStart, pad, w, h, color, width) {
-  const durationMs = visitEnd.getTime() - visitStart.getTime();
-  if (durationMs <= 0) return;
-  const plotW = w - pad.l - pad.r;
-  const plotH = h - pad.t - pad.b;
-  const plotStartMs = plotStart.getTime();
-  const plotDurationMs = ALT_PLOT_HOURS * 3600 * 1000;
-  const samples = Math.max(3, Math.ceil(durationMs / (5 * 60 * 1000)));
-  ctx.beginPath();
-  ctx.lineWidth = width;
-  ctx.strokeStyle = color;
-  ctx.setLineDash([]);
-  for (let i = 0; i <= samples; i++) {
-    const t = new Date(visitStart.getTime() + i / samples * durationMs);
-    const pos = altAzAtLst(target.raDeg, target.decDeg, localSiderealTime(t, LBT.lonDeg), LBT.latDeg);
-    const x = pad.l + ((t.getTime() - plotStartMs) / plotDurationMs) * plotW;
-    const y = pad.t + (1 - clamp(pos.alt, 0, 90) / 90) * plotH;
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
-  ctx.stroke();
-}
-
-function drawVisitLabel(ctx, target, idx, visitStart, visitEnd, plotStart, pad, w, h, visitHours, color) {
-  const mid = new Date((visitStart.getTime() + visitEnd.getTime()) / 2);
-  const plotStartMs = plotStart.getTime();
-  const plotDurationMs = ALT_PLOT_HOURS * 3600 * 1000;
-  const x = pad.l + ((mid.getTime() - plotStartMs) / plotDurationMs) * (w - pad.l - pad.r);
-  const pos = altAzAtLst(target.raDeg, target.decDeg, localSiderealTime(mid, LBT.lonDeg), LBT.latDeg);
-  const y = pad.t + (1 - clamp(pos.alt, 0, 90) / 90) * (h - pad.t - pad.b);
-  const label = `${idx + 1}. ${target.targetName} ${fmt(visitHours, 2)} hr`;
-  ctx.font = "12px system-ui";
-  const textW = ctx.measureText(label).width;
-  const boxX = clamp(x - textW / 2 - 6, pad.l + 2, w - pad.r - textW - 12);
-  const boxY = clamp(y - 28, pad.t + 4, h - pad.b - 22);
-  ctx.fillStyle = "rgba(8,16,23,0.78)";
-  ctx.fillRect(boxX, boxY, textW + 12, 20);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(boxX, boxY, textW + 12, 20);
-  ctx.fillStyle = "#edf4f7";
-  ctx.fillText(label, boxX + 6, boxY + 14);
+  const total = queued.reduce((sum, target) => sum + (Number(target.visitHours) || 0), 0);
+  ctx.fillStyle = "#c9d7de";
+  ctx.font = "14px system-ui";
+  ctx.fillText(`${queued.length} targets / ${fmt(total, 2)} hr`, pad.l, 22);
+  ctx.fillStyle = "#91a1aa";
+  ctx.font = "13px system-ui";
+  const xLabel = `Time (${timezoneLabel(state.meta.timezone)})`;
+  ctx.fillText(xLabel, pad.l + (plotW - ctx.measureText(xLabel).width) / 2, h - 2);
 }
 
 function timezoneLabel(zone) {
