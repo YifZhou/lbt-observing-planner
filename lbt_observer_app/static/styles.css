@@ -900,22 +900,14 @@ tbody tr.dropTarget {
 }
 
 #sequenceTimeline {
-  width: 100%;
-  height: 180px;
+  width: calc(100% + 28px);
+  height: 160px;
+  margin: 0 -14px;
   background: #081017;
 }
 
 #sequencePanel {
-  padding: 0;
-  overflow: hidden;
-}
-
-#sequencePanel .panelHeader {
-  padding: 14px 14px 0;
-}
-
-#sequencePanel .sequence {
-  padding: 0 14px 14px 36px;
+  overflow: visible;
 }
 
 .sequence button {
