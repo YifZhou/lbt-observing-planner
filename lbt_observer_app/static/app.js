@@ -7,6 +7,7 @@ let nightSampleCache = new Map();
 let targetTrackCache = new Map();
 let saveTimer = null;
 let draggedTargetId = "";
+let draggedSequenceIndex = -1;
 let sliderFrame = 0;
 let pendingSliderMinutes = null;
 let lastSliderPlotAt = 0;
@@ -33,7 +34,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     "instrumentTabs", "searchInput", "statusFilter", "flagFilter", "targetLimit", "upOnly", "hideDone", "manualTargetBtn",
     "nightStats", "summaryCards", "altCanvas", "altTargetsModeBtn", "altSequenceModeBtn", "altAzCanvas", "skyCanvas", "targetTable",
     "targetCount", "plotTargetLabel", "selectedTitle", "selectedMeta", "warningBadges", "diagnosticsGrid",
-    "queueBtn", "notesBox", "sequenceList", "clearSequenceBtn", "sequenceStartInput", "sequenceStartZone", "sequenceStartSelectedBtn",
+    "queueBtn", "notesBox", "sequenceList", "clearSequenceBtn", "sequenceStartInput", "sequenceStartZone", "sequenceStartSelectedBtn", "addOverheadBtn",
     "readmeSelect", "readmeSummary", "readmeText", "stateStamp",
     "clearFiltersBtn", "exportStatusBtn", "fileInput", "importBtn",
     "scrapeBtn", "scrapeLog", "targetsViewBtn", "atmViewBtn", "readmesViewBtn", "plannerView",
@@ -70,8 +71,7 @@ async function loadState() {
 function applyDefaults() {
   const now = new Date();
   state.targets = mergeByIdentity(state.targets || []);
-  const validIds = new Set(state.targets.map((t) => t.id));
-  state.sequence = (state.sequence || []).filter((id, idx, arr) => validIds.has(id) && arr.indexOf(id) === idx);
+  state.sequence = normalizeSequence(state.sequence || []);
   state.meta.date ||= now.toISOString().slice(0, 10);
   state.meta.timezone ||= "UTC";
   state.meta.selectedLocalTime ||= now.toISOString().slice(0, 16);
@@ -88,7 +88,7 @@ function applyDefaults() {
   }
   state.targets.forEach((t, idx) => {
     if ((t.status || "").toLowerCase() === "queued") {
-      if (!state.sequence.includes(t.id)) state.sequence.push(t.id);
+      if (!isTargetQueued(t.id)) state.sequence.push(t.id);
       t.status = "";
     }
     t.status ||= "";
@@ -203,6 +203,7 @@ function wireEvents() {
     state.meta.sequenceStartUtc = selectedUtc().toISOString();
     renderAndSave();
   });
+  els.addOverheadBtn.addEventListener("click", addSequenceOverhead);
   els.readmeSelect.addEventListener("change", () => {
     const target = getTarget(selectedId);
     if (target) {
@@ -281,8 +282,8 @@ function isTypingTarget(node) {
 
 function toggleSelectedQueue() {
   if (!selectedId) return;
-  if (state.sequence.includes(selectedId)) {
-    state.sequence = state.sequence.filter((id) => id !== selectedId);
+  if (isTargetQueued(selectedId)) {
+    removeTargetFromSequence(selectedId);
     if (!state.sequence.length) state.meta.sequenceStartUtc = "";
   } else {
     if (!validSequenceStart(state.meta.sequenceStartUtc)) {
@@ -365,6 +366,91 @@ function instrumentRank(name) {
 
 function getTarget(id) {
   return state.targets.find((t) => t.id === id);
+}
+
+function normalizeSequence(sequence) {
+  const validIds = new Set(state.targets.map((t) => t.id));
+  const seenTargets = new Set();
+  const out = [];
+  (sequence || []).forEach((entry) => {
+    if (typeof entry === "string") {
+      if (validIds.has(entry) && !seenTargets.has(entry)) {
+        seenTargets.add(entry);
+        out.push(entry);
+      }
+      return;
+    }
+    if (!entry || typeof entry !== "object") return;
+    if (entry.type === "overhead") {
+      out.push({
+        type: "overhead",
+        id: entry.id || overheadId(),
+        minutes: Math.max(1, Number(entry.minutes) || 30)
+      });
+      return;
+    }
+    const targetId = entry.targetId || entry.id;
+    if (validIds.has(targetId) && !seenTargets.has(targetId)) {
+      seenTargets.add(targetId);
+      out.push(targetId);
+    }
+  });
+  return out;
+}
+
+function sequenceEntryTargetId(entry) {
+  if (typeof entry === "string") return entry;
+  if (entry?.type === "target") return entry.targetId || entry.id || "";
+  return "";
+}
+
+function sequenceEntryTarget(entry) {
+  const id = sequenceEntryTargetId(entry);
+  return id ? getTarget(id) : null;
+}
+
+function sequenceTargets() {
+  return state.sequence.map(sequenceEntryTarget).filter(Boolean);
+}
+
+function isTargetQueued(id) {
+  return state.sequence.some((entry) => sequenceEntryTargetId(entry) === id);
+}
+
+function removeTargetFromSequence(id) {
+  state.sequence = state.sequence.filter((entry) => sequenceEntryTargetId(entry) !== id);
+}
+
+function isOverheadEntry(entry) {
+  return entry?.type === "overhead";
+}
+
+function sequenceEntryDurationHours(entry) {
+  if (isOverheadEntry(entry)) return Math.max(1, Number(entry.minutes) || 30) / 60;
+  const target = sequenceEntryTarget(entry);
+  return target ? Math.max(0.08, Number(target.visitHours) || 0.25) : 0;
+}
+
+function sequenceSchedule() {
+  let cursor = sequenceStartUtc();
+  let targetIndex = 0;
+  return state.sequence.map((entry, index) => {
+    const durationHours = sequenceEntryDurationHours(entry);
+    const start = new Date(cursor);
+    const end = new Date(start.getTime() + durationHours * 3600 * 1000);
+    const target = sequenceEntryTarget(entry);
+    const item = { entry, index, target, start, end, durationHours, targetIndex: target ? targetIndex++ : -1 };
+    cursor = end;
+    return item;
+  });
+}
+
+function sequenceTotalHours() {
+  return state.sequence.reduce((sum, entry) => sum + sequenceEntryDurationHours(entry), 0);
+}
+
+function overheadId() {
+  return `overhead-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function selectedUtc() {
@@ -665,7 +751,7 @@ function computeCurrentTargetMetric(target, context) {
 function metricTargets() {
   return uniqueTargets([
     ...instrumentTargets(),
-    ...state.sequence.map(getTarget).filter(Boolean),
+    ...sequenceTargets(),
     getTarget(selectedId)
   ]);
 }
@@ -901,7 +987,7 @@ function renderTable() {
     tr.dataset.id = target.id;
     tr.innerHTML = `
       <td><div class="targetName"><strong>${escapeHtml(target.targetName)}</strong></div></td>
-      <td><button class="statusCycle" title="Cycle todo and observed">${statusBadge(target.status, state.sequence.includes(target.id))}</button></td>
+      <td><button class="statusCycle" title="Cycle todo and observed">${statusBadge(target.status, isTargetQueued(target.id))}</button></td>
       <td class="coordCell">${escapeHtml(raShort(target))}</td>
       <td class="coordCell">${escapeHtml(decShort(target))}</td>
       <td>${escapeHtml(target.programName || "")}</td>
@@ -961,6 +1047,7 @@ function moonCellTitle(m) {
 
 function altWarningClass(m) {
   if (!Number.isFinite(m.alt) || m.alt <= 0) return "bad";
+  if (m.alt > 85) return "warn";
   if (m.alt < 15) return "bad";
   if (m.alt < 30 || m.airmass > 2) return "warn";
   if (m.alt < 40 || m.airmass > 1.55) return "soft";
@@ -969,6 +1056,7 @@ function altWarningClass(m) {
 
 function altWarningTitle(m) {
   if (!Number.isFinite(m.alt)) return "Missing altitude";
+  if (m.alt > 85) return `Altitude ${fmt(m.alt, 1)} deg; near zenith`;
   return `Altitude ${fmt(m.alt, 1)} deg; airmass ${fmt(m.airmass, 2)}`;
 }
 
@@ -1177,7 +1265,7 @@ function renderSelected() {
   const m = metricsCache.get(target.id) || {};
   const deltaT = targetDeltaTHours(target, m);
   els.selectedTitle.textContent = target.targetName;
-  els.queueBtn.textContent = state.sequence.includes(target.id) ? "Unqueue" : "Queue";
+  els.queueBtn.textContent = isTargetQueued(target.id) ? "Unqueue" : "Queue";
   els.selectedMeta.innerHTML = [
     ["Instrument", target.displayInstrument || target.instrument],
     ["Program", target.programName || ""],
@@ -1248,6 +1336,8 @@ function targetWarnings(target, includeReadme = false) {
   }
   if (!Number.isFinite(m.alt) || m.alt <= 0) {
     warnings.push({ code: "below", label: "down", detail: "Below horizon", level: "bad" });
+  } else if (m.alt > 85) {
+    warnings.push({ code: "zenith", label: "zenith", detail: `Altitude ${fmt(m.alt, 1)} deg near zenith`, level: "warn" });
   } else if (m.alt < 30 || m.airmass > 2) {
     warnings.push({ code: "airmass", label: "X>2", detail: `Airmass ${fmt(m.airmass, 2)} above 2.0`, level: m.airmass > 3 ? "bad" : "warn" });
   }
@@ -1323,24 +1413,66 @@ function warningBadgeHtml(target, mode) {
 
 function renderSequence(options = {}) {
   els.sequenceList.innerHTML = "";
-  state.sequence = state.sequence.filter((id) => getTarget(id));
+  state.sequence = normalizeSequence(state.sequence);
   if (options.timeline !== false) drawSequenceTimeline();
-  for (const [idx, id] of state.sequence.entries()) {
-    const t = getTarget(id);
-    const m = metricsCache.get(id) || {};
-    const visitLabel = Number.isFinite(Number(t.visitHours)) ? `${fmt(Number(t.visitHours), 2)} hr` : "visit unset";
+  let targetNumber = 0;
+  for (const [idx, entry] of state.sequence.entries()) {
+    const t = sequenceEntryTarget(entry);
+    if (t) targetNumber += 1;
+    const isOverhead = isOverheadEntry(entry);
+    const m = t ? (metricsCache.get(t.id) || {}) : {};
+    const visitLabel = isOverhead
+      ? `${fmt(sequenceEntryDurationHours(entry), 2)} hr`
+      : Number.isFinite(Number(t.visitHours)) ? `${fmt(Number(t.visitHours), 2)} hr · ${fmt(m.alt)} deg` : `visit unset · ${fmt(m.alt)} deg`;
     const li = document.createElement("li");
-    li.innerHTML = `
-      <div class="seqName"><strong>${escapeHtml(t.targetName)}</strong><span>${visitLabel} · ${fmt(m.alt)} deg</span></div>
+    li.draggable = true;
+    li.dataset.index = String(idx);
+    li.className = isOverhead ? "sequenceOverhead" : "";
+    li.innerHTML = isOverhead ? `
+      <div class="seqName"><strong>Overhead</strong><span>${visitLabel}</span></div>
+      <div class="seqActions">
+        <input class="overheadMinutes" type="number" min="1" step="1" value="${escapeHtml(String(Math.round(Number(entry.minutes) || 30)))}" aria-label="Overhead minutes">
+        <button data-act="up">Up</button>
+        <button data-act="down">Down</button>
+        <button data-act="remove">Remove</button>
+      </div>` : `
+      <div class="seqName"><strong>${targetNumber}. ${escapeHtml(t.targetName)}</strong><span>${visitLabel}</span></div>
       <div class="seqActions">
         <button data-act="up">Up</button>
         <button data-act="down">Down</button>
         <button data-act="done">Done</button>
         <button data-act="remove">Remove</button>
       </div>`;
+    li.addEventListener("dragstart", () => {
+      draggedSequenceIndex = idx;
+      li.classList.add("dragging");
+    });
+    li.addEventListener("dragend", () => {
+      draggedSequenceIndex = -1;
+      li.classList.remove("dragging");
+      li.classList.remove("dropTarget");
+    });
+    li.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      li.classList.add("dropTarget");
+    });
+    li.addEventListener("dragleave", () => li.classList.remove("dropTarget"));
+    li.addEventListener("drop", (event) => {
+      event.preventDefault();
+      li.classList.remove("dropTarget");
+      moveSequenceEntry(draggedSequenceIndex, idx);
+    });
     li.querySelectorAll("button").forEach((btn) => {
       btn.addEventListener("click", () => sequenceAction(idx, btn.dataset.act));
     });
+    const overheadInput = li.querySelector(".overheadMinutes");
+    if (overheadInput) {
+      overheadInput.addEventListener("click", (event) => event.stopPropagation());
+      overheadInput.addEventListener("change", () => {
+        entry.minutes = Math.max(1, Number(overheadInput.value) || 30);
+        renderAndSave();
+      });
+    }
     els.sequenceList.appendChild(li);
   }
 }
@@ -1352,7 +1484,6 @@ function drawSequenceTimeline() {
   fillCanvas(ctx, w, h);
   const pad = { l: 8, r: 8, t: 22, b: 30 };
   const base = selectedUtc();
-  const sequenceBase = sequenceStartUtc();
   const start = lbtNightWindowStart(base);
   const end = new Date(start.getTime() + ALT_PLOT_HOURS * 3600 * 1000);
   const plotW = w - pad.l - pad.r;
@@ -1369,30 +1500,27 @@ function drawSequenceTimeline() {
   ctx.lineTo(xNow, pad.t + plotH);
   ctx.stroke();
   ctx.globalAlpha = 1;
-  let cursor = new Date(sequenceBase);
-  const queued = state.sequence.map(getTarget).filter(Boolean);
-  if (!queued.length) {
+  const schedule = sequenceSchedule();
+  const targetCount = schedule.filter((item) => item.target).length;
+  if (!schedule.length) {
     ctx.fillStyle = "#91a1aa";
     ctx.font = "12px system-ui";
     ctx.fillText("Queue empty", pad.l + 8, pad.t + 26);
   }
-  queued.forEach((target, idx) => {
-    const visit = Math.max(0.08, Number(target.visitHours) || 0.25);
-    const next = new Date(cursor.getTime() + visit * 3600 * 1000);
-    const x0 = xForTime(cursor);
-    const x1 = xForTime(next);
+  schedule.forEach((item, idx) => {
+    const x0 = xForTime(item.start);
+    const x1 = xForTime(item.end);
     const y0 = pad.t + 12 + (idx % 4) * 22;
-    const color = priorityColor(target);
+    const color = item.target ? priorityColor(item.target) : "#91a1aa";
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.84;
+    ctx.globalAlpha = item.target ? 0.84 : 0.56;
     ctx.fillRect(x0, y0, Math.max(3, x1 - x0), 14);
     ctx.globalAlpha = 1;
     ctx.fillStyle = "#edf4f7";
     ctx.font = "11px system-ui";
-    const label = `${idx + 1}. ${target.targetName}`;
+    const label = item.target ? `${item.targetIndex + 1}. ${item.target.targetName}` : `OH ${fmt(item.durationHours, 2)} hr`;
     const labelX = clamp(x0 + 4, pad.l + 3, w - pad.r - ctx.measureText(label).width - 3);
     ctx.fillText(label, labelX, y0 + 11);
-    cursor = next;
   });
   ctx.fillStyle = "#91a1aa";
   ctx.font = "11px system-ui";
@@ -1402,10 +1530,9 @@ function drawSequenceTimeline() {
     const label = localPartsFromUtc(tick, state.meta.timezone).time.slice(0, 5);
     ctx.fillText(label, clamp(x - 12, pad.l + 2, w - pad.r - ctx.measureText(label).width - 2), h - 8);
   }
-  const total = queued.reduce((sum, t) => sum + (Number(t.visitHours) || 0), 0);
   ctx.fillStyle = "#c9d7de";
   ctx.font = "12px system-ui";
-  ctx.fillText(`${queued.length} targets / ${fmt(total, 2)} hr`, pad.l + 4, 15);
+  ctx.fillText(`${targetCount} targets / ${fmt(sequenceTotalHours(), 2)} hr`, pad.l + 4, 15);
 }
 
 function drawMiniTwilightBands(ctx, pad, w, h, start) {
@@ -1429,8 +1556,38 @@ function drawMiniTwilightBands(ctx, pad, w, h, start) {
   }
 }
 
+function addSequenceOverhead() {
+  if (!validSequenceStart(state.meta.sequenceStartUtc)) {
+    state.meta.sequenceStartUtc = selectedUtc().toISOString();
+  }
+  const overhead = { type: "overhead", id: overheadId(), minutes: 30 };
+  state.sequence.splice(overheadInsertIndex(selectedUtc()), 0, overhead);
+  renderAndSave();
+}
+
+function overheadInsertIndex(date) {
+  const schedule = sequenceSchedule();
+  if (!schedule.length) return 0;
+  let best = { index: schedule.length, dt: Infinity };
+  schedule.forEach((item) => {
+    const index = item.index + 1;
+    const dt = Math.abs(date - item.end);
+    if (dt < best.dt) best = { index, dt };
+  });
+  return best.index;
+}
+
+function moveSequenceEntry(from, to) {
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from >= state.sequence.length || to >= state.sequence.length || from === to) return;
+  const [entry] = state.sequence.splice(from, 1);
+  state.sequence.splice(to, 0, entry);
+  renderAndSave();
+}
+
 function sequenceAction(idx, action) {
-  const id = state.sequence[idx];
+  const entry = state.sequence[idx];
+  const id = sequenceEntryTargetId(entry);
+  const firstDurationHours = idx === 0 ? sequenceEntryDurationHours(entry) : 0;
   if (action === "up" && idx > 0) [state.sequence[idx - 1], state.sequence[idx]] = [state.sequence[idx], state.sequence[idx - 1]];
   if (action === "down" && idx < state.sequence.length - 1) [state.sequence[idx + 1], state.sequence[idx]] = [state.sequence[idx], state.sequence[idx + 1]];
   if (action === "remove") state.sequence.splice(idx, 1);
@@ -1438,6 +1595,9 @@ function sequenceAction(idx, action) {
     updateTarget(id, { status: "observed", observedAt: new Date().toISOString() }, false);
   }
   if (!state.sequence.length) state.meta.sequenceStartUtc = "";
+  if (action === "remove" && idx === 0 && state.sequence.length && validSequenceStart(state.meta.sequenceStartUtc)) {
+    state.meta.sequenceStartUtc = new Date(new Date(state.meta.sequenceStartUtc).getTime() + firstDurationHours * 3600 * 1000).toISOString();
+  }
   renderAndSave();
 }
 
@@ -1592,11 +1752,10 @@ function drawAltitudePlot() {
   const mode = state.meta.altitudeMode === "sequence" ? "sequence" : "targets";
   els.altTargetsModeBtn.classList.toggle("active", mode === "targets");
   els.altSequenceModeBtn.classList.toggle("active", mode === "sequence");
-  const queued = state.sequence.map(getTarget).filter(Boolean);
+  const queued = sequenceTargets();
   if (mode === "sequence") {
     drawLargeSequenceTimeline(ctx, w, h);
-    const sequenceHours = queued.reduce((sum, target) => sum + (Number(target.visitHours) || 0), 0);
-    els.plotTargetLabel.textContent = `${state.sequence.length} queued / ${fmt(sequenceHours, 2)} hr`;
+    els.plotTargetLabel.textContent = `${queued.length} queued / ${fmt(sequenceTotalHours(), 2)} hr`;
     return;
   }
   const pad = { l: 50, r: 18, t: 24, b: 40 };
@@ -1610,7 +1769,7 @@ function drawAltitudePlot() {
   targets.forEach((target) => {
     if (target.raDeg == null || target.decDeg == null) return;
     const isSelected = target.id === selectedId;
-    const isQueued = state.sequence.includes(target.id);
+    const isQueued = isTargetQueued(target.id);
     const stroke = priorityColor(target);
     if (isSelected) {
       drawAltTrack(ctx, target, start, pad, w, h, "rgba(255,255,255,0.24)", 9, []);
@@ -1666,7 +1825,7 @@ function drawAltitudePlot() {
   const xLabel = `Time (${timezoneLabel(state.meta.timezone)})`;
   const xLabelWidth = ctx.measureText(xLabel).width;
   ctx.fillText(xLabel, pad.l + (w - pad.l - pad.r - xLabelWidth) / 2, h - 2);
-  els.plotTargetLabel.textContent = selected ? `${selected.targetName}; queued ${state.sequence.length}` : "";
+  els.plotTargetLabel.textContent = selected ? `${selected.targetName}; queued ${sequenceTargets().length}` : "";
 }
 
 function drawLargeSequenceTimeline(ctx, w, h) {
@@ -1674,12 +1833,12 @@ function drawLargeSequenceTimeline(ctx, w, h) {
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
   const base = selectedUtc();
-  const sequenceBase = sequenceStartUtc();
   const start = lbtNightWindowStart(base);
   const end = new Date(start.getTime() + ALT_PLOT_HOURS * 3600 * 1000);
   const plotStartMs = start.getTime();
   const plotEndMs = end.getTime();
-  const queued = state.sequence.map(getTarget).filter(Boolean);
+  const schedule = sequenceSchedule();
+  const queued = schedule.map((item) => item.target).filter(Boolean);
   drawMiniTwilightBands(ctx, pad, w, h, start);
   ctx.strokeStyle = "#273443";
   ctx.lineWidth = 1;
@@ -1716,53 +1875,50 @@ function drawLargeSequenceTimeline(ctx, w, h) {
   ctx.lineTo(xNow, pad.t + plotH);
   ctx.stroke();
   ctx.globalAlpha = 1;
-  if (!queued.length) {
+  if (!schedule.length) {
     ctx.fillStyle = "#91a1aa";
     ctx.font = "18px system-ui";
     ctx.fillText("Queue empty", pad.l + 16, pad.t + 38);
   }
-  const rowCount = Math.max(queued.length, 4);
+  const rowCount = Math.max(schedule.length, 4);
   const rowH = clamp((plotH - 16) / rowCount, 22, 44);
   const barH = Math.min(28, Math.max(14, rowH * 0.64));
-  let cursor = new Date(sequenceBase);
-  queued.forEach((target, idx) => {
-    const visitHours = Math.max(0.08, Number(target.visitHours) || 0.25);
-    const visitStart = cursor;
-    const visitEnd = new Date(cursor.getTime() + visitHours * 3600 * 1000);
-    cursor = visitEnd;
-    if (visitEnd.getTime() < plotStartMs || visitStart.getTime() > plotEndMs) return;
-    const clippedStart = new Date(clamp(visitStart.getTime(), plotStartMs, plotEndMs));
-    const clippedEnd = new Date(clamp(visitEnd.getTime(), plotStartMs, plotEndMs));
+  schedule.forEach((item, idx) => {
+    if (item.end.getTime() < plotStartMs || item.start.getTime() > plotEndMs) return;
+    const clippedStart = new Date(clamp(item.start.getTime(), plotStartMs, plotEndMs));
+    const clippedEnd = new Date(clamp(item.end.getTime(), plotStartMs, plotEndMs));
     const x0 = pad.l + ((clippedStart.getTime() - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
     const x1 = pad.l + ((clippedEnd.getTime() - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
     const y = pad.t + 10 + idx * rowH;
-    const color = priorityColor(target);
+    const color = item.target ? priorityColor(item.target) : "#91a1aa";
     ctx.fillStyle = color;
-    ctx.globalAlpha = 0.88;
+    ctx.globalAlpha = item.target ? 0.88 : 0.55;
     ctx.fillRect(x0, y, Math.max(4, x1 - x0), barH);
     ctx.globalAlpha = 1;
     ctx.strokeStyle = "rgba(255,255,255,0.32)";
     ctx.strokeRect(x0, y, Math.max(4, x1 - x0), barH);
-    const label = `${idx + 1}. ${target.targetName}  ${fmt(visitHours, 2)} hr`;
+    const label = item.target
+      ? `${item.targetIndex + 1}. ${item.target.targetName}  ${fmt(item.durationHours, 2)} hr`
+      : `Overhead  ${fmt(item.durationHours, 2)} hr`;
     ctx.font = `${barH >= 22 ? 13 : 11}px system-ui`;
     const labelWidth = ctx.measureText(label).width;
     const labelX = clamp(x0 + 7, pad.l + 5, w - pad.r - labelWidth - 5);
     ctx.fillStyle = "#edf4f7";
     ctx.fillText(label, labelX, y + barH * 0.68);
   });
-  drawActiveSequenceAltitude(ctx, queued, sequenceBase, base, start, pad, w, h);
-  const total = queued.reduce((sum, target) => sum + (Number(target.visitHours) || 0), 0);
+  drawActiveSequenceAltitude(ctx, schedule, base, start, pad, w, h);
+  const targetCount = schedule.filter((item) => item.target).length;
   ctx.fillStyle = "#c9d7de";
   ctx.font = "14px system-ui";
-  ctx.fillText(`${queued.length} targets / ${fmt(total, 2)} hr`, pad.l, 22);
+  ctx.fillText(`${targetCount} targets / ${fmt(sequenceTotalHours(), 2)} hr`, pad.l, 22);
   ctx.fillStyle = "#91a1aa";
   ctx.font = "13px system-ui";
   const xLabel = `Time (${timezoneLabel(state.meta.timezone)})`;
   ctx.fillText(xLabel, pad.l + (plotW - ctx.measureText(xLabel).width) / 2, h - 2);
 }
 
-function drawActiveSequenceAltitude(ctx, queued, sequenceBase, base, plotStart, pad, w, h) {
-  const active = activeSequenceEntry(queued, sequenceBase, base);
+function drawActiveSequenceAltitude(ctx, schedule, base, plotStart, pad, w, h) {
+  const active = activeSequenceEntry(schedule, base);
   if (!active || active.target.raDeg == null || active.target.decDeg == null) return;
   const track = altitudeTrack(active.target, plotStart);
   const denom = Math.max(track.length - 1, 1);
@@ -1783,18 +1939,8 @@ function drawActiveSequenceAltitude(ctx, queued, sequenceBase, base, plotStart, 
   ctx.globalAlpha = 1;
 }
 
-function activeSequenceEntry(queued, sequenceBase, date) {
-  let cursor = new Date(sequenceBase);
-  for (let idx = 0; idx < queued.length; idx++) {
-    const target = queued[idx];
-    const visitHours = Math.max(0.08, Number(target.visitHours) || 0.25);
-    const next = new Date(cursor.getTime() + visitHours * 3600 * 1000);
-    if (date >= cursor && date <= next) {
-      return { target, index: idx, start: cursor, end: next };
-    }
-    cursor = next;
-  }
-  return null;
+function activeSequenceEntry(schedule, date) {
+  return schedule.find((item) => item.target && date >= item.start && date <= item.end) || null;
 }
 
 function handleAltitudeCanvasClick(event) {
@@ -1826,7 +1972,7 @@ function canvasPoint(event, canvas) {
 }
 
 function plotTargetsForClick(limit = 14) {
-  const queued = state.sequence.map(getTarget).filter(Boolean);
+  const queued = sequenceTargets();
   const targets = uniqueTargets([...queued, ...visibleTargets().slice(0, limit)]);
   const selected = getTarget(selectedId);
   if (selected && !targets.some((t) => t.id === selected.id)) targets.unshift(selected);
@@ -1839,26 +1985,20 @@ function hitSequenceTimeline(point, canvas) {
   const plotW = w - pad.l - pad.r;
   const plotH = h - pad.t - pad.b;
   const base = selectedUtc();
-  const sequenceBase = sequenceStartUtc();
   const start = lbtNightWindowStart(base);
   const plotStartMs = start.getTime();
   const plotEndMs = plotStartMs + ALT_PLOT_HOURS * 3600 * 1000;
-  const queued = state.sequence.map(getTarget).filter(Boolean);
-  const rowCount = Math.max(queued.length, 4);
+  const schedule = sequenceSchedule();
+  const rowCount = Math.max(schedule.length, 4);
   const rowH = clamp((plotH - 16) / rowCount, 22, 44);
   const barH = Math.min(28, Math.max(14, rowH * 0.64));
-  let cursor = new Date(sequenceBase);
-  for (let idx = 0; idx < queued.length; idx++) {
-    const target = queued[idx];
-    const visitHours = Math.max(0.08, Number(target.visitHours) || 0.25);
-    const visitStart = cursor;
-    const visitEnd = new Date(cursor.getTime() + visitHours * 3600 * 1000);
-    cursor = visitEnd;
-    if (visitEnd.getTime() < plotStartMs || visitStart.getTime() > plotEndMs) continue;
-    const x0 = pad.l + ((clamp(visitStart.getTime(), plotStartMs, plotEndMs) - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
-    const x1 = pad.l + ((clamp(visitEnd.getTime(), plotStartMs, plotEndMs) - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
-    const y = pad.t + 10 + idx * rowH;
-    if (point.x >= x0 - 6 && point.x <= x1 + 6 && point.y >= y - 5 && point.y <= y + barH + 5) return target.id;
+  for (const item of schedule) {
+    if (!item.target) continue;
+    if (item.end.getTime() < plotStartMs || item.start.getTime() > plotEndMs) continue;
+    const x0 = pad.l + ((clamp(item.start.getTime(), plotStartMs, plotEndMs) - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
+    const x1 = pad.l + ((clamp(item.end.getTime(), plotStartMs, plotEndMs) - plotStartMs) / (plotEndMs - plotStartMs)) * plotW;
+    const y = pad.t + 10 + item.index * rowH;
+    if (point.x >= x0 - 6 && point.x <= x1 + 6 && point.y >= y - 5 && point.y <= y + barH + 5) return item.target.id;
   }
   return "";
 }
@@ -1890,7 +2030,7 @@ function hitAltAzPlot(point, canvas) {
   const pad = { l: 42, r: 14, t: 26, b: 34 };
   const start = lbtNightWindowStart(selectedUtc());
   const sequenceMode = state.meta.altitudeMode === "sequence";
-  const targets = sequenceMode ? state.sequence.map(getTarget).filter(Boolean) : plotTargetsForClick(14);
+  const targets = sequenceMode ? sequenceTargets() : plotTargetsForClick(14);
   let best = { id: "", dist: Infinity };
   targets.forEach((target) => {
     if (target.raDeg == null || target.decDeg == null) return;
@@ -1917,11 +2057,11 @@ function hitSkyPlot(point, canvas) {
   const cx = w / 2;
   const cy = h / 2 + 8;
   const r = Math.min(w, h) * 0.42;
-  const targets = uniqueTargets([...state.sequence.map(getTarget).filter(Boolean), ...visibleTargets().slice(0, 80)]);
+  const targets = uniqueTargets([...sequenceTargets(), ...visibleTargets().slice(0, 80)]);
   let best = { id: "", dist: Infinity };
   targets.forEach((target) => {
     const m = metricsCache.get(target.id) || {};
-    const isQueued = state.sequence.includes(target.id);
+    const isQueued = isTargetQueued(target.id);
     if (!Number.isFinite(m.alt) || (!isQueued && m.alt <= 0)) return;
     const rr = r * (1 - clamp(m.alt, 0, 90) / 90);
     const theta = rad(m.az);
@@ -2191,7 +2331,7 @@ function drawAltAzPlot() {
   const plotH = h - pad.t - pad.b;
   const base = selectedUtc();
   const start = lbtNightWindowStart(base);
-  const queued = state.sequence.map(getTarget).filter(Boolean);
+  const queued = sequenceTargets();
   const sequenceMode = state.meta.altitudeMode === "sequence";
   const targets = sequenceMode ? queued : uniqueTargets([...queued, ...visibleTargets().slice(0, 14)]);
   const selected = getTarget(selectedId);
@@ -2228,7 +2368,7 @@ function drawAltAzPlot() {
   targets.forEach((target) => {
     if (target.raDeg == null || target.decDeg == null) return;
     const isSelected = target.id === selectedId;
-    const isQueued = state.sequence.includes(target.id);
+    const isQueued = isTargetQueued(target.id);
     drawAltAzTrack(ctx, target, start, pad, w, h, priorityColor(target), isSelected ? 3.8 : isQueued ? 2.8 : 1.5, isQueued && !isSelected ? [8, 6] : []);
     const m = metricsCache.get(target.id) || {};
     if (Number.isFinite(m.alt) && (m.alt > 0 || (isQueued && sequenceMode))) {
@@ -2248,7 +2388,7 @@ function drawAltAzPlot() {
         ctx.stroke();
       }
       if (sequenceMode && isQueued) {
-        const seqIdx = state.sequence.indexOf(target.id);
+        const seqIdx = sequenceTargets().findIndex((t) => t.id === target.id);
         ctx.fillStyle = "#edf4f7";
         ctx.font = "11px system-ui";
         ctx.fillText(String(seqIdx + 1), Math.min(x + 6, w - pad.r - 10), Math.max(y - 6, pad.t + 12));
@@ -2384,10 +2524,9 @@ function drawSkyPlot() {
     const theta = rad(m.az);
     return { x: cx - rr * Math.sin(theta), y: cy - rr * Math.cos(theta), target, below: m.alt <= 0 };
   };
-  const sequencePoints = state.sequence.map((id, idx) => {
-    const target = getTarget(id);
-    const point = target ? skyPoint(target, { includeBelow: true }) : null;
-    return point ? { ...point, sequenceIndex: idx } : null;
+  const sequencePoints = sequenceSchedule().filter((item) => item.target).map((item) => {
+    const point = skyPoint(item.target, { includeBelow: true });
+    return point ? { ...point, sequenceIndex: item.targetIndex } : null;
   }).filter(Boolean);
   if (sequencePoints.length > 1) {
     ctx.strokeStyle = "rgba(120,174,247,0.82)";
@@ -2407,7 +2546,7 @@ function drawSkyPlot() {
     const x = cx - rr * Math.sin(theta);
     const y = cy - rr * Math.cos(theta);
     const isSelected = target.id === selectedId;
-    const isQueued = state.sequence.includes(target.id);
+    const isQueued = isTargetQueued(target.id);
     ctx.fillStyle = priorityColor(target);
     ctx.beginPath();
     ctx.arc(x, y, isSelected ? 7 : isQueued ? 5 : 3, 0, Math.PI * 2);
@@ -3120,8 +3259,13 @@ function updateTarget(id, patch, doRender = true) {
   if (!target) return;
   Object.assign(target, patch);
   if (patch.status !== undefined && ["observed", "done", "skip"].includes(String(patch.status).toLowerCase())) {
-    state.sequence = state.sequence.filter((x) => x !== id);
+    const idx = state.sequence.findIndex((entry) => sequenceEntryTargetId(entry) === id);
+    const firstDurationHours = idx === 0 ? sequenceEntryDurationHours(state.sequence[0]) : 0;
+    removeTargetFromSequence(id);
     if (!state.sequence.length) state.meta.sequenceStartUtc = "";
+    if (idx === 0 && state.sequence.length && validSequenceStart(state.meta.sequenceStartUtc)) {
+      state.meta.sequenceStartUtc = new Date(new Date(state.meta.sequenceStartUtc).getTime() + firstDurationHours * 3600 * 1000).toISOString();
+    }
   }
   if (doRender) renderAndSave();
 }
@@ -3131,6 +3275,7 @@ function makeStatusExport() {
     kind: "lbt-status-exchange",
     exportedAt: new Date().toISOString(),
     sequenceStartUtc: state.meta.sequenceStartUtc || "",
+    sequence: state.sequence.map((entry) => typeof entry === "string" ? entry : { ...entry }),
     manualTargets: state.targets.filter((t) => t.source === "manual").map((t) => ({ ...t })),
     statuses: state.targets.map((t) => ({
       id: t.id,
@@ -3145,7 +3290,7 @@ function makeStatusExport() {
       prioritySource: t.prioritySource || "",
       manualOrder: t.manualOrder ?? null,
       readmeId: t.readmeId || "",
-      queued: state.sequence.includes(t.id)
+      queued: isTargetQueued(t.id)
     }))
   };
 }
@@ -3180,6 +3325,9 @@ function importJson(data) {
     if (validSequenceStart(data.sequenceStartUtc)) {
       state.meta.sequenceStartUtc = data.sequenceStartUtc;
     }
+    if (Array.isArray(data.sequence)) {
+      state.sequence = normalizeSequence(data.sequence);
+    }
     const rows = data.statuses || [];
     rows.forEach((row) => {
       const target = state.targets.find((t) => t.id === row.id) || state.targets.find((t) =>
@@ -3193,10 +3341,10 @@ function importJson(data) {
         manualOrder: row.manualOrder ?? target.manualOrder,
         readmeId: row.readmeId || target.readmeId || ""
       });
-      if (target && row.queued === true && !state.sequence.includes(target.id)) state.sequence.push(target.id);
-      if (target && row.queued === false) state.sequence = state.sequence.filter((id) => id !== target.id);
+      if (target && row.queued === true && !isTargetQueued(target.id)) state.sequence.push(target.id);
+      if (target && row.queued === false) removeTargetFromSequence(target.id);
       if (target && String(target.status).toLowerCase() === "queued") {
-        if (!state.sequence.includes(target.id)) state.sequence.push(target.id);
+        if (!isTargetQueued(target.id)) state.sequence.push(target.id);
         target.status = "";
       }
     });

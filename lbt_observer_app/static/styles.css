@@ -886,6 +886,19 @@ tbody tr.dropTarget {
   background: #0f1720;
 }
 
+.sequence li.dragging {
+  opacity: 0.55;
+}
+
+.sequence li.dropTarget {
+  border-color: var(--teal);
+}
+
+.sequence li.sequenceOverhead {
+  background: #10161d;
+  border-style: dashed;
+}
+
 .sequence .seqName {
   display: flex;
   justify-content: space-between;
@@ -899,9 +912,15 @@ tbody tr.dropTarget {
   gap: 6px;
 }
 
+.sequence .overheadMinutes {
+  width: 72px;
+  min-height: 28px;
+  font-size: 12px;
+}
+
 .sequenceStartControl {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: end;
 }
