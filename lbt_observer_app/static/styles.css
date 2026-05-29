@@ -899,6 +899,22 @@ tbody tr.dropTarget {
   gap: 6px;
 }
 
+.sequenceStartControl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.sequenceStartControl label span {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.sequenceStartControl button {
+  white-space: nowrap;
+}
+
 #sequenceTimeline {
   width: calc(100% + 28px);
   height: 160px;

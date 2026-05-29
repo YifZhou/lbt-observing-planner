@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     "instrumentTabs", "searchInput", "statusFilter", "flagFilter", "targetLimit", "upOnly", "hideDone", "manualTargetBtn",
     "nightStats", "summaryCards", "altCanvas", "altTargetsModeBtn", "altSequenceModeBtn", "altAzCanvas", "skyCanvas", "targetTable",
     "targetCount", "plotTargetLabel", "selectedTitle", "selectedMeta", "warningBadges", "diagnosticsGrid",
-    "queueBtn", "notesBox", "sequenceList", "clearSequenceBtn",
+    "queueBtn", "notesBox", "sequenceList", "clearSequenceBtn", "sequenceStartInput", "sequenceStartZone", "sequenceStartSelectedBtn",
     "readmeSelect", "readmeSummary", "readmeText", "stateStamp",
     "clearFiltersBtn", "exportStatusBtn", "fileInput", "importBtn",
     "scrapeBtn", "scrapeLog", "targetsViewBtn", "atmViewBtn", "readmesViewBtn", "plannerView",
@@ -96,10 +96,10 @@ function applyDefaults() {
     t.observedAt ||= "";
     if (t.manualOrder == null) t.manualOrder = idx;
   });
-  if (!state.sequence.length) {
-    state.meta.sequenceStartUtc = "";
-  } else if (!validSequenceStart(state.meta.sequenceStartUtc)) {
+  if (state.sequence.length && !validSequenceStart(state.meta.sequenceStartUtc)) {
     state.meta.sequenceStartUtc = selectedUtc().toISOString();
+  } else if (!state.sequence.length && !validSequenceStart(state.meta.sequenceStartUtc)) {
+    state.meta.sequenceStartUtc = "";
   }
   selectedId ||= visibleTargets()[0]?.id || state.targets[0]?.id || "";
 }
@@ -198,6 +198,11 @@ function wireEvents() {
     state.meta.sequenceStartUtc = "";
     renderAndSave();
   });
+  els.sequenceStartInput.addEventListener("change", setSequenceStartFromInput);
+  els.sequenceStartSelectedBtn.addEventListener("click", () => {
+    state.meta.sequenceStartUtc = selectedUtc().toISOString();
+    renderAndSave();
+  });
   els.readmeSelect.addEventListener("change", () => {
     const target = getTarget(selectedId);
     if (target) {
@@ -280,7 +285,7 @@ function toggleSelectedQueue() {
     state.sequence = state.sequence.filter((id) => id !== selectedId);
     if (!state.sequence.length) state.meta.sequenceStartUtc = "";
   } else {
-    if (!state.sequence.length || !validSequenceStart(state.meta.sequenceStartUtc)) {
+    if (!validSequenceStart(state.meta.sequenceStartUtc)) {
       state.meta.sequenceStartUtc = selectedUtc().toISOString();
     }
     state.sequence.push(selectedId);
@@ -372,11 +377,33 @@ function validSequenceStart(value) {
 }
 
 function sequenceStartUtc() {
-  if (!state.sequence.length) return selectedUtc();
   if (!validSequenceStart(state.meta.sequenceStartUtc)) {
-    state.meta.sequenceStartUtc = selectedUtc().toISOString();
+    if (state.sequence.length) {
+      state.meta.sequenceStartUtc = selectedUtc().toISOString();
+    } else {
+      return selectedUtc();
+    }
   }
   return new Date(state.meta.sequenceStartUtc);
+}
+
+function syncSequenceStartInput() {
+  if (!els.sequenceStartInput) return;
+  const zone = state.meta.timezone || "UTC";
+  const start = validSequenceStart(state.meta.sequenceStartUtc) ? new Date(state.meta.sequenceStartUtc) : selectedUtc();
+  const parts = localPartsFromUtc(start, zone);
+  els.sequenceStartInput.value = `${parts.date}T${parts.time.slice(0, 5)}`;
+  els.sequenceStartZone.textContent = `(${timezoneLabel(zone)})`;
+}
+
+function setSequenceStartFromInput() {
+  const value = els.sequenceStartInput.value;
+  if (!value) {
+    state.meta.sequenceStartUtc = "";
+  } else {
+    state.meta.sequenceStartUtc = zonedLocalToUtc(value, state.meta.timezone).toISOString();
+  }
+  renderAndSave();
 }
 
 function zonedLocalToUtc(localText, zone) {
@@ -519,6 +546,7 @@ function syncInputs() {
   els.timeSlider.value = String(minutesIntoNightWindow(selectedUtc()));
   updateLbtLocalReadout();
   els.zoneInput.value = state.meta.timezone || "UTC";
+  syncSequenceStartInput();
 }
 
 function updateLbtLocalReadout() {

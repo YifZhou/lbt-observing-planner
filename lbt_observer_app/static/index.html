@@ -275,6 +275,12 @@
           <span class="shortcutHint">Q queue/unqueue · D done</span>
           <button id="clearSequenceBtn" class="iconBtn">Clear</button>
         </div>
+        <div class="sequenceStartControl">
+          <label>Start <span id="sequenceStartZone"></span>
+            <input id="sequenceStartInput" type="datetime-local" step="60">
+          </label>
+          <button id="sequenceStartSelectedBtn" type="button">Use selected</button>
+        </div>
         <canvas id="sequenceTimeline" width="360" height="160"></canvas>
         <ol id="sequenceList" class="sequence"></ol>
       </section>
