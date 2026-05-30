@@ -187,10 +187,7 @@ function wireEvents() {
   });
   document.querySelectorAll(".statusButtons button").forEach((btn) => {
     btn.addEventListener("click", () => {
-      updateTarget(selectedId, {
-        status: btn.dataset.status,
-        observedAt: btn.dataset.status === "observed" ? new Date().toISOString() : ""
-      });
+      setTargetStatus(selectedId, btn.dataset.status);
     });
   });
   els.clearSequenceBtn.addEventListener("click", () => {
@@ -283,8 +280,7 @@ function isTypingTarget(node) {
 function toggleSelectedQueue() {
   if (!selectedId) return;
   if (isTargetQueued(selectedId)) {
-    removeTargetFromSequence(selectedId);
-    if (!state.sequence.length) state.meta.sequenceStartUtc = "";
+    removeTargetFromSequence(selectedId, { advanceStart: true });
   } else {
     if (!validSequenceStart(state.meta.sequenceStartUtc)) {
       state.meta.sequenceStartUtc = selectedUtc().toISOString();
@@ -417,8 +413,15 @@ function isTargetQueued(id) {
   return state.sequence.some((entry) => sequenceEntryTargetId(entry) === id);
 }
 
-function removeTargetFromSequence(id) {
+function removeTargetFromSequence(id, options = {}) {
+  const idx = state.sequence.findIndex((entry) => sequenceEntryTargetId(entry) === id);
+  const firstDurationHours = idx === 0 ? sequenceEntryDurationHours(state.sequence[0]) : 0;
   state.sequence = state.sequence.filter((entry) => sequenceEntryTargetId(entry) !== id);
+  if (!state.sequence.length) {
+    state.meta.sequenceStartUtc = "";
+  } else if (options.advanceStart && idx === 0 && validSequenceStart(state.meta.sequenceStartUtc)) {
+    state.meta.sequenceStartUtc = new Date(new Date(state.meta.sequenceStartUtc).getTime() + firstDurationHours * 3600 * 1000).toISOString();
+  }
 }
 
 function isOverheadEntry(entry) {
@@ -827,7 +830,8 @@ function visibleTargets() {
     if (els.hideDone?.checked && isDone(t)) return false;
     if (els.upOnly?.checked && !(m.alt > 0)) return false;
     if (statusMode === "observed" && !isObserved(t)) return false;
-    if (statusMode === "todo" && (t.status || "")) return false;
+    if (statusMode === "queued" && !isTargetQueued(t.id)) return false;
+    if (statusMode === "todo" && effectiveTargetStatus(t) !== "todo") return false;
     if (statusMode === "skip" && t.status !== "skip") return false;
     if (statusMode === "active" && (t.status === "observed" || t.status === "skip")) return false;
     if (!passesFlagFilter(t, flagMode)) return false;
@@ -942,7 +946,7 @@ function targetSortValue(t, key) {
   const m = metricsCache.get(t.id) || {};
   if (key === "deltaT") return targetDeltaTHours(t, m);
   if (key in m) return m[key];
-  if (key === "status") return t.status || "todo";
+  if (key === "status") return effectiveTargetStatus(t);
   if (key === "partner") return partnerForTarget(t);
   if (key === "priority" || key === "visitHours") return Number(t[key]);
   return t[key] || "";
@@ -953,7 +957,7 @@ function scoreTarget(t) {
   const pr = Number.isFinite(t.priority) ? 10 - t.priority : 0;
   const alt = Number.isFinite(m.alt) ? clamp((m.alt - 15) / 55, 0, 1) * 8 : 0;
   const moon = Number.isFinite(m.moonSep) ? clamp((m.moonSep - 20) / 80, 0, 1) * 2 : 0;
-  const status = t.status === "queued" ? 3 : 0;
+  const status = isTargetQueued(t.id) ? 3 : 0;
   return pr + alt + moon + status;
 }
 
@@ -987,7 +991,7 @@ function renderTable() {
     tr.dataset.id = target.id;
     tr.innerHTML = `
       <td><div class="targetName"><strong>${escapeHtml(target.targetName)}</strong></div></td>
-      <td><button class="statusCycle" title="Cycle todo and observed">${statusBadge(target.status, isTargetQueued(target.id))}</button></td>
+      <td><button class="statusCycle" title="Cycle todo, queued, and observed">${statusBadge(target.status, isTargetQueued(target.id))}</button></td>
       <td class="coordCell">${escapeHtml(raShort(target))}</td>
       <td class="coordCell">${escapeHtml(decShort(target))}</td>
       <td>${escapeHtml(target.programName || "")}</td>
@@ -1138,9 +1142,32 @@ function twilightWarningDetail(m) {
 function cycleStatus(id) {
   const target = getTarget(id);
   if (!target) return;
-  const current = (target.status || "").toLowerCase();
-  const next = current === "observed" || current === "done" ? "" : "observed";
-  updateTarget(id, { status: next, observedAt: next === "observed" ? new Date().toISOString() : "" });
+  const current = effectiveTargetStatus(target);
+  const next = current === "todo" ? "queued" : current === "queued" ? "observed" : "";
+  setTargetStatus(id, next);
+}
+
+function setTargetStatus(id, status) {
+  const target = getTarget(id);
+  if (!target) return;
+  const next = String(status || "").toLowerCase();
+  if (next === "queued") {
+    target.status = "";
+    target.observedAt = "";
+    if (!isTargetQueued(id)) {
+      if (!validSequenceStart(state.meta.sequenceStartUtc)) state.meta.sequenceStartUtc = selectedUtc().toISOString();
+      state.sequence.push(id);
+    }
+    renderAndSave();
+    return;
+  }
+  if (isTargetQueued(id)) {
+    removeTargetFromSequence(id, { advanceStart: true });
+  }
+  updateTarget(id, {
+    status: next,
+    observedAt: next === "observed" ? new Date().toISOString() : ""
+  });
 }
 
 function moveTargetBefore(sourceId, targetId) {
@@ -1284,7 +1311,7 @@ function renderSelected() {
   els.warningBadges.innerHTML = warningBadgeHtml(target, "full") || `<span class="targetOk">No current flags</span>`;
   els.notesBox.value = target.notes || "";
   document.querySelectorAll(".statusButtons button").forEach((btn) => {
-    btn.classList.toggle("active", (target.status || "") === btn.dataset.status);
+    btn.classList.toggle("active", effectiveTargetStatus(target) === (btn.dataset.status || "todo"));
   });
 }
 
@@ -3259,13 +3286,7 @@ function updateTarget(id, patch, doRender = true) {
   if (!target) return;
   Object.assign(target, patch);
   if (patch.status !== undefined && ["observed", "done", "skip"].includes(String(patch.status).toLowerCase())) {
-    const idx = state.sequence.findIndex((entry) => sequenceEntryTargetId(entry) === id);
-    const firstDurationHours = idx === 0 ? sequenceEntryDurationHours(state.sequence[0]) : 0;
-    removeTargetFromSequence(id);
-    if (!state.sequence.length) state.meta.sequenceStartUtc = "";
-    if (idx === 0 && state.sequence.length && validSequenceStart(state.meta.sequenceStartUtc)) {
-      state.meta.sequenceStartUtc = new Date(new Date(state.meta.sequenceStartUtc).getTime() + firstDurationHours * 3600 * 1000).toISOString();
-    }
+    removeTargetFromSequence(id, { advanceStart: true });
   }
   if (doRender) renderAndSave();
 }
@@ -3503,11 +3524,18 @@ function isDone(t) {
   return isObserved(t) || (t.status || "").toLowerCase() === "skip";
 }
 
+function effectiveTargetStatus(t) {
+  if (isObserved(t)) return "observed";
+  if ((t.status || "").toLowerCase() === "skip") return "skip";
+  if (isTargetQueued(t.id)) return "queued";
+  return "todo";
+}
+
 function statusBadge(status, queued = false) {
-  const s = (status || "todo").toLowerCase();
+  const base = (status || "").toLowerCase();
+  const s = queued && !["observed", "done", "skip"].includes(base) ? "queued" : (base || "todo");
   const cls = s === "done" ? "observed" : s;
-  const queue = queued ? `<span class="badge queued">queued</span>` : "";
-  return `${queue}<span class="badge ${escapeHtml(cls)}">${escapeHtml(s)}</span>`;
+  return `<span class="badge ${escapeHtml(cls)}">${escapeHtml(s)}</span>`;
 }
 
 function coordLine(t) {
