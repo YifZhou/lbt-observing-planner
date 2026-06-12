@@ -2,6 +2,8 @@
 
 ![LBT Observing Planner target-planning interface](docs/observing-planner-overview.png)
 
+This tool is based on Prof. Mark Whittle's original LBTO planning spreadsheet. The web application preserves the spreadsheet's core observing workflow and calculations while adding OSURC scraping, readme/status management, interactive plots, and a browser-based sequence interface.
+
 The main planning view keeps the night context, instrument selection, target table, altitude/Alt-Az/sky plots, warnings, and observing sequence visible together. The screenshot shows a typical night-mode layout: the left column tracks the active instrument, run summary, local night information, and data actions; the center panel supports target filtering, warning review, and priority edits; the top plots show target visibility, Moon position, twilight, and queue highlighting; the right panel keeps the observing sequence and selected-target details available during real-time decisions.
 
 LBT Observing Planner is a local web application for planning and executing observations at the Large Binocular Telescope. It combines OSURC queue scraping, target review, readme inspection, altitude and sky visualization, observing queue management, atmospheric dispersion checks, and status exchange into one browser interface.
